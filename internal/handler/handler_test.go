@@ -230,33 +230,8 @@ func TestUploadDownloadDeleteModpack(t *testing.T) {
 
 func TestDiskQuotaHandler(t *testing.T) {
 	tmpDir := t.TempDir()
-	gamesDB, err := store.OpenGamesDB(tmpDir)
-	if err != nil {
-		t.Fatalf("OpenGamesDB: %v", err)
-	}
-	defer gamesDB.Close()
-	modpacksDB, err := store.OpenModpacksDB(tmpDir)
-	if err != nil {
-		t.Fatalf("OpenModpacksDB: %v", err)
-	}
-	defer modpacksDB.Close()
 
-	// Insert test data
-	_, err = gamesDB.InsertGame("Game1", "1.0", "Game1_1.0.zip", "g1.exe", 1000)
-	if err != nil {
-		t.Fatalf("InsertGame: %v", err)
-	}
-	_, err = gamesDB.InsertGame("Game2", "2.0", "Game2_2.0.zip", "g2.exe", 2000)
-	if err != nil {
-		t.Fatalf("InsertGame: %v", err)
-	}
-	_, err = modpacksDB.InsertModpack("Game1", "Mod1", "Game1_Mod1.zip", 500)
-	if err != nil {
-		t.Fatalf("InsertModpack: %v", err)
-	}
-
-	const quotaBytes int64 = 100 * 1024 * 1024 * 1024 // 100 GB
-	handlerFunc := handler.DiskQuotaHandler(gamesDB, modpacksDB, quotaBytes)
+	handlerFunc := handler.DiskQuotaHandler(tmpDir)
 	req := httptest.NewRequest("GET", "/admin/disk-quota", nil)
 	rr := httptest.NewRecorder()
 
@@ -274,10 +249,17 @@ func TestDiskQuotaHandler(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if resp.TotalBytes != quotaBytes {
-		t.Errorf("expected total_bytes %d, got %d", quotaBytes, resp.TotalBytes)
+	if resp.TotalBytes <= 0 {
+		t.Errorf("expected total_bytes > 0, got %d", resp.TotalBytes)
 	}
-	if resp.UsedBytes != 3500 {
-		t.Errorf("expected used_bytes 3500, got %d", resp.UsedBytes)
+	if resp.UsedBytes < 0 {
+		t.Errorf("expected used_bytes >= 0, got %d", resp.UsedBytes)
+	}
+	if resp.TotalBytes < resp.UsedBytes {
+		t.Errorf("expected total_bytes (%d) >= used_bytes (%d)", resp.TotalBytes, resp.UsedBytes)
+	}
+	// free_bytes = total_bytes - used_bytes should also be positive
+	if freeBytes := resp.TotalBytes - resp.UsedBytes; freeBytes < 0 {
+		t.Errorf("expected free_bytes >= 0, got %d", freeBytes)
 	}
 }

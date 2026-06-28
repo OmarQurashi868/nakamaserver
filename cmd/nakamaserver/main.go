@@ -121,7 +121,7 @@ func main() {
 		middleware.Logger(
 			middleware.RateLimit(
 				middleware.AuthAdmin(cfg.AdminKey,
-					handler.DiskQuotaHandler(gamesDB, modpacksDB, cfg.DiskQuotaBytes),
+					handler.DiskQuotaHandler(cfg.GamesDir),
 				),
 			),
 		),

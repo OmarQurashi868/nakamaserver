@@ -381,27 +381,24 @@ func DeleteGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 // --- Disk Quota ---
 
 // DiskQuotaHandler returns a handler for GET /admin/disk-quota.
-func DiskQuotaHandler(gdb *store.GamesDB, mdb *store.ModpacksDB, quotaBytes int64) http.HandlerFunc {
+// It reports the total and used bytes of the filesystem that contains gamesDir.
+func DiskQuotaHandler(gamesDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		gamesSize, err := gdb.TotalSize()
+
+		totalBytes, freeBytes, err := diskUsage(gamesDir)
 		if err != nil {
-			logger.Error("total games size", map[string]any{"err": err.Error()})
+			logger.Error("disk usage", map[string]any{"err": err.Error(), "dir": gamesDir})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		modpacksSize, err := mdb.TotalSize()
-		if err != nil {
-			logger.Error("total modpacks size", map[string]any{"err": err.Error()})
-			jsonErr(w, "internal error", http.StatusInternalServerError)
-			return
-		}
+
 		jsonOK(w, map[string]any{
-			"total_bytes": quotaBytes,
-			"used_bytes":  gamesSize + modpacksSize,
+			"total_bytes": totalBytes,
+			"used_bytes":  totalBytes - freeBytes,
 		})
 	}
 }

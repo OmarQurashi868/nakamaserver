@@ -320,7 +320,7 @@ curl -X DELETE "http://localhost:8080/admin/modpack/My%20Game/Cool%20Mod" \
 
 ### `GET /admin/disk-quota`
 
-Returns the configured disk quota and current total used space across all games and modpacks.
+Returns the total and used bytes of the filesystem that contains the games directory.
 
 **Request**
 ```
@@ -336,19 +336,21 @@ curl -X GET http://localhost:8080/admin/disk-quota \
 
 **Response `200 OK`**
 ```json
-{"total_bytes": 107374182400, "used_bytes": 1126500096}
+{"total_bytes": 107374182400, "used_bytes": 52648001536}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `total_bytes` | int64 | Configured disk quota in bytes (`DISK_QUOTA_BYTES`) |
-| `used_bytes` | int64 | Sum of all game and modpack file sizes on disk |
+| `total_bytes` | int64 | Total size of the server disk in bytes |
+| `used_bytes` | int64 | Used space across the entire server disk in bytes |
+
+> `free_bytes` can be derived as `total_bytes - used_bytes`.
 
 **Error responses**
 
 | Status | Condition |
 |--------|-----------|
-| `500 Internal Server Error` | Database error |
+| `500 Internal Server Error` | Unable to query filesystem stats |
 
 ---
 
@@ -362,4 +364,3 @@ curl -X GET http://localhost:8080/admin/disk-quota \
 | `GAMES_DIR` | No | `/data/nakama/games` | Directory for game files and DB |
 | `MODPACKS_DIR` | No | `/data/nakama/modpacks` | Directory for modpack files and DB |
 | `MAX_UPLOAD_BYTES` | No | `10737418240` (10 GB) | Maximum allowed upload size in bytes |
-| `DISK_QUOTA_BYTES` | No | `107374182400` (100 GB) | Total disk quota in bytes reported by `/admin/disk-quota` |
