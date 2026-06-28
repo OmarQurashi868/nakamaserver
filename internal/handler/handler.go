@@ -79,10 +79,14 @@ func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if err := r.ParseMultipartForm(maxBytes); err != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		if err := r.ParseMultipartForm(32 << 20); err != nil { // Max 32MB in memory, rest to disk
 			jsonErr(w, "failed to parse form: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		defer func() {
+			_ = r.MultipartForm.RemoveAll()
+		}()
 		title := strings.TrimSpace(r.FormValue("title"))
 		version := strings.TrimSpace(r.FormValue("version"))
 		launchExe := strings.TrimSpace(r.FormValue("launch_exe"))
@@ -160,10 +164,14 @@ func UploadModpackHandler(mdb *store.ModpacksDB, modpacksDir string, maxBytes in
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if err := r.ParseMultipartForm(maxBytes); err != nil {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		if err := r.ParseMultipartForm(32 << 20); err != nil { // Max 32MB in memory, rest to disk
 			jsonErr(w, "failed to parse form: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+		defer func() {
+			_ = r.MultipartForm.RemoveAll()
+		}()
 		gameTitle := strings.TrimSpace(r.FormValue("game_title"))
 		modpackTitle := strings.TrimSpace(r.FormValue("modpack_title"))
 		if gameTitle == "" || modpackTitle == "" {
