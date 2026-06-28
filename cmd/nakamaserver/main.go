@@ -116,6 +116,17 @@ func main() {
 		),
 	)
 
+	// GET /admin/disk-quota
+	mux.Handle("/admin/disk-quota",
+		middleware.Logger(
+			middleware.RateLimit(
+				middleware.AuthAdmin(cfg.AdminKey,
+					handler.DiskQuotaHandler(gamesDB, modpacksDB, cfg.DiskQuotaBytes),
+				),
+			),
+		),
+	)
+
 	addr := ":" + cfg.Port
 	logger.Info("starting nakamaserver", map[string]any{"addr": addr})
 	if err := http.ListenAndServe(addr, mux); err != nil {

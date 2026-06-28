@@ -12,6 +12,7 @@ type Config struct {
 	DownloadKey    string
 	Port           string
 	MaxUploadBytes int64
+	DiskQuotaBytes int64
 	GamesDir       string
 	ModpacksDir    string
 }
@@ -43,6 +44,15 @@ func Load() (*Config, error) {
 		maxUploadBytes = v
 	}
 
+	diskQuotaBytes := int64(100 * 1024 * 1024 * 1024) // default 100 GB
+	if raw := os.Getenv("DISK_QUOTA_BYTES"); raw != "" {
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DISK_QUOTA_BYTES: %w", err)
+		}
+		diskQuotaBytes = v
+	}
+
 	gamesDir := os.Getenv("GAMES_DIR")
 	if gamesDir == "" {
 		gamesDir = "/data/nakama/games"
@@ -58,6 +68,7 @@ func Load() (*Config, error) {
 		DownloadKey:    downloadKey,
 		Port:           port,
 		MaxUploadBytes: maxUploadBytes,
+		DiskQuotaBytes: diskQuotaBytes,
 		GamesDir:       gamesDir,
 		ModpacksDir:    modpacksDir,
 	}, nil

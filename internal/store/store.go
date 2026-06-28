@@ -30,6 +30,7 @@ type Game struct {
 	FileSizeB   int64  `json:"file_size_bytes"`
 	LaunchExe   string `json:"launch_exe"`
 	UploadedAt  string `json:"uploaded_at"`
+	Downloads   int64  `json:"downloads"`
 }
 
 // Modpack represents one row in the modpacks table.
@@ -40,6 +41,7 @@ type Modpack struct {
 	FileName     string `json:"file_name"`
 	FileSizeB    int64  `json:"file_size_bytes"`
 	UploadedAt   string `json:"uploaded_at"`
+	Downloads    int64  `json:"downloads"`
 }
 
 // FullCatalog is the payload returned by GET /query.
@@ -90,10 +92,25 @@ func migrateGames(db *sql.DB) error {
 			file_size_b INTEGER NOT NULL,
 			launch_exe  TEXT NOT NULL,
 			uploaded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+			downloads   INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(title, version)
 		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	var count int
+	err = db.QueryRow("SELECT count(*) FROM pragma_table_info('games') WHERE name='downloads'").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = db.Exec("ALTER TABLE games ADD COLUMN downloads INTEGER NOT NULL DEFAULT 0")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateModpacks(db *sql.DB) error {
@@ -105,10 +122,25 @@ func migrateModpacks(db *sql.DB) error {
 			file_name     TEXT NOT NULL,
 			file_size_b   INTEGER NOT NULL,
 			uploaded_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+			downloads     INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(game_title, modpack_title)
 		)
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	var count int
+	err = db.QueryRow("SELECT count(*) FROM pragma_table_info('modpacks') WHERE name='downloads'").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = db.Exec("ALTER TABLE modpacks ADD COLUMN downloads INTEGER NOT NULL DEFAULT 0")
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // --- Games methods ---
@@ -129,11 +161,11 @@ func (g *GamesDB) InsertGame(title, version, fileName, launchExe string, sizeB i
 // GetGame looks up a game by title and version.
 func (g *GamesDB) GetGame(title, version string) (*Game, error) {
 	row := g.db.QueryRow(
-		`SELECT id, title, version, file_name, file_size_b, launch_exe, uploaded_at FROM games WHERE title=? AND version=?`,
+		`SELECT id, title, version, file_name, file_size_b, launch_exe, uploaded_at, downloads FROM games WHERE title=? AND version=?`,
 		title, version,
 	)
 	var game Game
-	err := row.Scan(&game.ID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.UploadedAt)
+	err := row.Scan(&game.ID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.UploadedAt, &game.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -158,7 +190,7 @@ func (g *GamesDB) DeleteGame(title, version string) (string, bool, error) {
 
 // ListGames returns all game records.
 func (g *GamesDB) ListGames() ([]Game, error) {
-	rows, err := g.db.Query(`SELECT id, title, version, file_name, file_size_b, launch_exe, uploaded_at FROM games ORDER BY title, version`)
+	rows, err := g.db.Query(`SELECT id, title, version, file_name, file_size_b, launch_exe, uploaded_at, downloads FROM games ORDER BY title, version`)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +198,7 @@ func (g *GamesDB) ListGames() ([]Game, error) {
 	var games []Game
 	for rows.Next() {
 		var game Game
-		if err := rows.Scan(&game.ID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.UploadedAt); err != nil {
+		if err := rows.Scan(&game.ID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.UploadedAt, &game.Downloads); err != nil {
 			return nil, err
 		}
 		games = append(games, game)
@@ -195,11 +227,11 @@ func (m *ModpacksDB) InsertModpack(gameTitle, modpackTitle, fileName string, siz
 // GetModpack looks up a modpack by game title and modpack title.
 func (m *ModpacksDB) GetModpack(gameTitle, modpackTitle string) (*Modpack, error) {
 	row := m.db.QueryRow(
-		`SELECT id, game_title, modpack_title, file_name, file_size_b, uploaded_at FROM modpacks WHERE game_title=? AND modpack_title=?`,
+		`SELECT id, game_title, modpack_title, file_name, file_size_b, uploaded_at, downloads FROM modpacks WHERE game_title=? AND modpack_title=?`,
 		gameTitle, modpackTitle,
 	)
 	var mp Modpack
-	err := row.Scan(&mp.ID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.UploadedAt)
+	err := row.Scan(&mp.ID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.UploadedAt, &mp.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -224,7 +256,7 @@ func (m *ModpacksDB) DeleteModpack(gameTitle, modpackTitle string) (string, bool
 
 // ListModpacks returns all modpack records.
 func (m *ModpacksDB) ListModpacks() ([]Modpack, error) {
-	rows, err := m.db.Query(`SELECT id, game_title, modpack_title, file_name, file_size_b, uploaded_at FROM modpacks ORDER BY game_title, modpack_title`)
+	rows, err := m.db.Query(`SELECT id, game_title, modpack_title, file_name, file_size_b, uploaded_at, downloads FROM modpacks ORDER BY game_title, modpack_title`)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +264,7 @@ func (m *ModpacksDB) ListModpacks() ([]Modpack, error) {
 	var modpacks []Modpack
 	for rows.Next() {
 		var mp Modpack
-		if err := rows.Scan(&mp.ID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.UploadedAt); err != nil {
+		if err := rows.Scan(&mp.ID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.UploadedAt, &mp.Downloads); err != nil {
 			return nil, err
 		}
 		modpacks = append(modpacks, mp)
@@ -241,4 +273,40 @@ func (m *ModpacksDB) ListModpacks() ([]Modpack, error) {
 		modpacks = []Modpack{}
 	}
 	return modpacks, rows.Err()
+}
+
+// TotalSize returns the sum of file_size_b across all games.
+func (g *GamesDB) TotalSize() (int64, error) {
+	var total int64
+	err := g.db.QueryRow(`SELECT COALESCE(SUM(file_size_b), 0) FROM games`).Scan(&total)
+	return total, err
+}
+
+// IncrementGameDownloads increments the downloads count for a game.
+func (g *GamesDB) IncrementGameDownloads(title, version string) error {
+	_, err := g.db.Exec(`UPDATE games SET downloads = downloads + 1 WHERE title=? AND version=?`, title, version)
+	return err
+}
+
+// TotalSize returns the sum of file_size_b across all modpacks.
+func (m *ModpacksDB) TotalSize() (int64, error) {
+	var total int64
+	err := m.db.QueryRow(`SELECT COALESCE(SUM(file_size_b), 0) FROM modpacks`).Scan(&total)
+	return total, err
+}
+
+// IncrementModpackDownloads increments the downloads count for a modpack.
+func (m *ModpacksDB) IncrementModpackDownloads(gameTitle, modpackTitle string) error {
+	_, err := m.db.Exec(`UPDATE modpacks SET downloads = downloads + 1 WHERE game_title=? AND modpack_title=?`, gameTitle, modpackTitle)
+	return err
+}
+
+// Close closes the games SQLite database connection.
+func (g *GamesDB) Close() error {
+	return g.db.Close()
+}
+
+// Close closes the modpacks SQLite database connection.
+func (m *ModpacksDB) Close() error {
+	return m.db.Close()
 }

@@ -8,6 +8,7 @@
 //	GET  /download/modpack/{gameTitle}/{modpackTitle} - stream modpack zip (download key, 1/IP)
 //	DELETE /admin/game/{title}/{version}        - delete game (admin key)
 //	DELETE /admin/modpack/{gameTitle}/{modpackTitle}  - delete modpack (admin key)
+//	GET  /admin/disk-quota                     - disk quota status (admin key)
 package handler
 
 import (
@@ -276,6 +277,10 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 		}
 		defer f.Close()
 
+		if err := gdb.IncrementGameDownloads(title, version); err != nil {
+			logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "title": title, "version": version})
+		}
+
 		stat, _ := f.Stat()
 		w.Header().Set("Content-Type", "application/zip")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, game.FileName))
@@ -320,6 +325,10 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 			return
 		}
 		defer f.Close()
+
+		if err := mdb.IncrementModpackDownloads(gameTitle, modpackTitle); err != nil {
+			logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "game": gameTitle, "modpack": modpackTitle})
+		}
 
 		stat, _ := f.Stat()
 		w.Header().Set("Content-Type", "application/zip")
@@ -366,6 +375,34 @@ func DeleteGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 		}
 		logger.Info("game deleted", map[string]any{"title": title, "version": version})
 		jsonOK(w, map[string]any{"ok": true})
+	}
+}
+
+// --- Disk Quota ---
+
+// DiskQuotaHandler returns a handler for GET /admin/disk-quota.
+func DiskQuotaHandler(gdb *store.GamesDB, mdb *store.ModpacksDB, quotaBytes int64) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		gamesSize, err := gdb.TotalSize()
+		if err != nil {
+			logger.Error("total games size", map[string]any{"err": err.Error()})
+			jsonErr(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		modpacksSize, err := mdb.TotalSize()
+		if err != nil {
+			logger.Error("total modpacks size", map[string]any{"err": err.Error()})
+			jsonErr(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		jsonOK(w, map[string]any{
+			"total_bytes": quotaBytes,
+			"used_bytes":  gamesSize + modpacksSize,
+		})
 	}
 }
 

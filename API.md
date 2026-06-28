@@ -60,7 +60,8 @@ X-API-Key: <admin-key or download-key>
       "file_name": "My_Game_1.0.zip",
       "file_size_bytes": 1073741824,
       "launch_exe": "game.exe",
-      "uploaded_at": "2026-06-28T01:00:00Z"
+      "uploaded_at": "2026-06-28T01:00:00Z",
+      "downloads": 42
     }
   ],
   "modpacks": [
@@ -70,7 +71,8 @@ X-API-Key: <admin-key or download-key>
       "modpack_title": "Cool Mod",
       "file_name": "My_Game_Cool_Mod.zip",
       "file_size_bytes": 52428800,
-      "uploaded_at": "2026-06-28T02:00:00Z"
+      "uploaded_at": "2026-06-28T02:00:00Z",
+      "downloads": 7
     }
   ]
 }
@@ -316,6 +318,40 @@ curl -X DELETE "http://localhost:8080/admin/modpack/My%20Game/Cool%20Mod" \
 
 ---
 
+### `GET /admin/disk-quota`
+
+Returns the configured disk quota and current total used space across all games and modpacks.
+
+**Request**
+```
+GET /admin/disk-quota
+X-API-Key: <admin-key>
+```
+
+**Example (curl)**
+```bash
+curl -X GET http://localhost:8080/admin/disk-quota \
+  -H "X-API-Key: <admin-key>"
+```
+
+**Response `200 OK`**
+```json
+{"total_bytes": 107374182400, "used_bytes": 1126500096}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_bytes` | int64 | Configured disk quota in bytes (`DISK_QUOTA_BYTES`) |
+| `used_bytes` | int64 | Sum of all game and modpack file sizes on disk |
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `500 Internal Server Error` | Database error |
+
+---
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
@@ -326,3 +362,4 @@ curl -X DELETE "http://localhost:8080/admin/modpack/My%20Game/Cool%20Mod" \
 | `GAMES_DIR` | No | `/data/nakama/games` | Directory for game files and DB |
 | `MODPACKS_DIR` | No | `/data/nakama/modpacks` | Directory for modpack files and DB |
 | `MAX_UPLOAD_BYTES` | No | `10737418240` (10 GB) | Maximum allowed upload size in bytes |
+| `DISK_QUOTA_BYTES` | No | `107374182400` (100 GB) | Total disk quota in bytes reported by `/admin/disk-quota` |
