@@ -33,6 +33,7 @@ type Game struct {
 	LaunchExe  string `json:"launch_exe"`
 	AppID      string `json:"app_id"`
 	Notes      string `json:"notes"`
+	TitleNotes string `json:"title_notes"`
 	UploadedAt string `json:"uploaded_at"`
 	Downloads  int64  `json:"downloads"`
 }
@@ -108,6 +109,7 @@ func migrateGames(db *sql.DB) error {
 			launch_exe  TEXT NOT NULL,
 			app_id      TEXT NOT NULL DEFAULT '',
 			notes       TEXT NOT NULL DEFAULT '',
+			title_notes TEXT NOT NULL DEFAULT '',
 			uploaded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 			downloads   INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(title, version)
@@ -143,6 +145,16 @@ func migrateGames(db *sql.DB) error {
 	}
 	if count == 0 {
 		_, err = db.Exec("ALTER TABLE games ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+		if err != nil {
+			return err
+		}
+	}
+	err = db.QueryRow("SELECT count(*) FROM pragma_table_info('games') WHERE name='title_notes'").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = db.Exec("ALTER TABLE games ADD COLUMN title_notes TEXT NOT NULL DEFAULT ''")
 		if err != nil {
 			return err
 		}
@@ -256,11 +268,11 @@ func migrateModpacks(db *sql.DB) error {
 // --- Games methods ---
 
 // InsertGame inserts a game record. Returns the new UUID and whether it was inserted.
-func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID, notes string, sizeB int64) (string, bool, error) {
+func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID, notes, titleNotes string, sizeB int64) (string, bool, error) {
 	uuid := newUUID()
 	res, err := g.db.Exec(
-		`INSERT OR IGNORE INTO games (uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes) VALUES (?,?,?,?,?,?,?,?)`,
-		uuid, title, version, fileName, sizeB, launchExe, appID, notes,
+		`INSERT OR IGNORE INTO games (uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, title_notes) VALUES (?,?,?,?,?,?,?,?,?)`,
+		uuid, title, version, fileName, sizeB, launchExe, appID, notes, titleNotes,
 	)
 	if err != nil {
 		return "", false, fmt.Errorf("insert game: %w", err)
@@ -269,12 +281,12 @@ func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID, notes s
 	if rows == 0 {
 		return "", false, nil
 	}
-	// Sync app_id and notes across all versions of the same title.
+	// Sync app_id and title_notes across all versions of the same title.
 	if appID != "" {
 		_, _ = g.db.Exec(`UPDATE games SET app_id = ? WHERE title = ? AND app_id != ?`, appID, title, appID)
 	}
-	if notes != "" {
-		_, _ = g.db.Exec(`UPDATE games SET notes = ? WHERE title = ? AND notes != ?`, notes, title, notes)
+	if titleNotes != "" {
+		_, _ = g.db.Exec(`UPDATE games SET title_notes = ? WHERE title = ? AND title_notes != ?`, titleNotes, title, titleNotes)
 	}
 	return uuid, true, nil
 }
@@ -282,11 +294,11 @@ func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID, notes s
 // GetGame looks up a game by title and version.
 func (g *GamesDB) GetGame(title, version string) (*Game, error) {
 	row := g.db.QueryRow(
-		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, uploaded_at, downloads FROM games WHERE title=? AND version=?`,
+		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, title_notes, uploaded_at, downloads FROM games WHERE title=? AND version=?`,
 		title, version,
 	)
 	var game Game
-	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.UploadedAt, &game.Downloads)
+	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.TitleNotes, &game.UploadedAt, &game.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -299,11 +311,11 @@ func (g *GamesDB) GetGame(title, version string) (*Game, error) {
 // GetGameByUUID looks up a game by its UUID.
 func (g *GamesDB) GetGameByUUID(uuid string) (*Game, error) {
 	row := g.db.QueryRow(
-		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, uploaded_at, downloads FROM games WHERE uuid=?`,
+		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, title_notes, uploaded_at, downloads FROM games WHERE uuid=?`,
 		uuid,
 	)
 	var game Game
-	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.UploadedAt, &game.Downloads)
+	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.TitleNotes, &game.UploadedAt, &game.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -327,26 +339,26 @@ func (g *GamesDB) DeleteGameByUUID(uuid string) (string, bool, error) {
 }
 
 // UpdateGame updates fields on a game identified by UUID.
-// Allowed keys: title, version, app_id, notes, launch_exe.
-// app_id and notes sync across all versions of the same title.
+// Allowed keys: title, version, app_id, notes, title_notes, launch_exe.
+// app_id and title_notes sync across all versions of the same title.
 func (g *GamesDB) UpdateGame(uuid string, fields map[string]string) error {
-	allowed := map[string]bool{"title": true, "version": true, "app_id": true, "notes": true, "launch_exe": true}
+	allowed := map[string]bool{"title": true, "version": true, "app_id": true, "notes": true, "title_notes": true, "launch_exe": true}
 	for k := range fields {
 		if !allowed[k] {
 			return fmt.Errorf("unknown field: %s", k)
 		}
 	}
-	// If app_id or notes updated, sync across all versions of same title.
+	// If app_id or title_notes updated, sync across all versions of same title.
 	_, syncApp := fields["app_id"]
-	_, syncNotes := fields["notes"]
-	if syncApp || syncNotes {
+	_, syncTitleNotes := fields["title_notes"]
+	if syncApp || syncTitleNotes {
 		var title string
 		if err := g.db.QueryRow(`SELECT title FROM games WHERE uuid = ?`, uuid).Scan(&title); err == nil {
 			if syncApp && fields["app_id"] != "" {
 				_, _ = g.db.Exec(`UPDATE games SET app_id = ? WHERE title = ?`, fields["app_id"], title)
 			}
-			if syncNotes && fields["notes"] != "" {
-				_, _ = g.db.Exec(`UPDATE games SET notes = ? WHERE title = ?`, fields["notes"], title)
+			if syncTitleNotes && fields["title_notes"] != "" {
+				_, _ = g.db.Exec(`UPDATE games SET title_notes = ? WHERE title = ?`, fields["title_notes"], title)
 			}
 		}
 	}
@@ -361,7 +373,7 @@ func (g *GamesDB) UpdateGame(uuid string, fields map[string]string) error {
 
 // ListGames returns all game records.
 func (g *GamesDB) ListGames() ([]Game, error) {
-	rows, err := g.db.Query(`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, uploaded_at, downloads FROM games ORDER BY title, version`)
+	rows, err := g.db.Query(`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, title_notes, uploaded_at, downloads FROM games ORDER BY title, version`)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +381,7 @@ func (g *GamesDB) ListGames() ([]Game, error) {
 	var games []Game
 	for rows.Next() {
 		var game Game
-		if err := rows.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.UploadedAt, &game.Downloads); err != nil {
+		if err := rows.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.TitleNotes, &game.UploadedAt, &game.Downloads); err != nil {
 			return nil, err
 		}
 		games = append(games, game)

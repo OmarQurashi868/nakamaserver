@@ -29,7 +29,7 @@ func TestQueryHandler(t *testing.T) {
 	defer modpacksDB.Close()
 
 	// Insert test game & modpack
-	_, _, err = gamesDB.InsertGame("Minecraft", "1.20", "Minecraft_1.20.zip", "minecraft.exe", "", "", 1000)
+	_, _, err = gamesDB.InsertGame("Minecraft", "1.20", "Minecraft_1.20.zip", "minecraft.exe", "", "", "", 1000)
 	if err != nil {
 		t.Fatalf("InsertGame: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestPatchGame(t *testing.T) {
 	}
 	defer gamesDB.Close()
 
-	uuid, _, err := gamesDB.InsertGame("Patch Game", "1.0", "patch.zip", "patch.exe", "old_steam", "", 100)
+	uuid, _, err := gamesDB.InsertGame("Patch Game", "1.0", "patch.zip", "patch.exe", "old_steam", "", "", 100)
 	if err != nil {
 		t.Fatalf("InsertGame: %v", err)
 	}

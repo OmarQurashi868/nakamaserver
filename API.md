@@ -69,6 +69,7 @@ X-API-Key: <admin-key or download-key>
       "launch_exe": "game.exe",
       "app_id": "",
       "notes": "",
+      "title_notes": "",
       "uploaded_at": "2026-06-28T01:00:00Z",
       "downloads": 42
     }
@@ -181,8 +182,9 @@ Content-Type: multipart/form-data
 | `title` | string | Yes | Display name of the game |
 | `version` | string | Yes | Version string (e.g. `1.0`, `2.1.3`) |
 | `launch_exe` | string | Yes | Relative path to the executable inside the zip (e.g. `game.exe`) |
-| `app_id` | string | No | External app/store ID for the game (e.g. Steam App ID) |
-| `notes` | string | No | Free-form notes (per-title — syncs across all versions) |
+| `app_id` | string | No | External app/store ID (per-title — syncs across all versions) |
+| `notes` | string | No | Free-form notes for this specific version |
+| `title_notes` | string | No | Game-wide notes (per-title — syncs across all versions) |
 | `file` | file | Yes | The zip archive to upload |
 
 **Example (curl)**
@@ -209,7 +211,7 @@ curl -X POST http://localhost:8080/admin/upload/game \
 | `409 Conflict` | A game with this title + version already exists |
 | `500 Internal Server Error` | Disk or database error |
 
-> The stored filename is derived from `title` and `version` with unsafe characters replaced by underscores (e.g. `My Game` + `1.0` → `My_Game_1.0.zip`). The `title` + `version` pair must be unique. A UUID is assigned at upload and returned — save this UUID for future download, delete, and patch operations. **app_id and notes are per-title:** setting either on any version automatically syncs it to all other versions of the same game.
+> The stored filename is derived from `title` and `version` with unsafe characters replaced by underscores (e.g. `My Game` + `1.0` → `My_Game_1.0.zip`). The `title` + `version` pair must be unique. A UUID is assigned at upload and returned — save this UUID for future download, delete, and patch operations. **app_id and title_notes are per-title:** setting either on any version automatically syncs it to all other versions of the same game. **notes is per-version** — each version keeps its own notes.
 
 ---
 
@@ -341,15 +343,16 @@ Content-Type: application/json
 ```
 
 ```json
-{"title": "New Title", "version": "2.0", "app_id": "999999", "notes": "Updated notes", "launch_exe": "new_launcher.exe"}
+{"title": "New Title", "version": "2.0", "app_id": "999999", "notes": "Updated notes", "title_notes": "Game-wide note", "launch_exe": "new_launcher.exe"}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `title` | string | New display name for the game |
 | `version` | string | New version string |
-| `app_id` | string | External app/store ID (e.g. Steam App ID) |
-| `notes` | string | Free-form notes (per-title — syncs across all versions) |
+| `app_id` | string | External app/store ID (per-title — syncs across all versions) |
+| `notes` | string | Free-form notes for this specific version |
+| `title_notes` | string | Game-wide notes (per-title — syncs across all versions) |
 | `launch_exe` | string | Relative path to the executable inside the zip |
 
 All fields are optional. Only include the fields you want to change.
