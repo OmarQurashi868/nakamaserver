@@ -49,7 +49,7 @@ func main() {
 	// POST /admin/upload/game (admin key auth + rate limit; uploads exempt from 1-per-IP)
 	mux.Handle("/admin/upload/game",
 		middleware.Logger(
-			middleware.RateLimit(
+			middleware.RateLimitAdmin(
 				middleware.AuthAdmin(cfg.AdminKey,
 					handler.UploadGameHandler(gamesDB, cfg.GamesDir, cfg.MaxUploadBytes),
 				),
@@ -60,7 +60,7 @@ func main() {
 	// POST /admin/upload/modpack
 	mux.Handle("/admin/upload/modpack",
 		middleware.Logger(
-			middleware.RateLimit(
+			middleware.RateLimitAdmin(
 				middleware.AuthAdmin(cfg.AdminKey,
 					handler.UploadModpackHandler(modpacksDB, cfg.ModpacksDir, cfg.MaxUploadBytes),
 				),
@@ -97,7 +97,7 @@ func main() {
 	// DELETE + PATCH /admin/game/{uuid}
 	mux.Handle("/admin/game/",
 		middleware.Logger(
-			middleware.RateLimit(
+			middleware.RateLimitAdmin(
 				middleware.AuthAdmin(cfg.AdminKey,
 					handler.GameAdminHandler(gamesDB, cfg.GamesDir),
 				),
@@ -108,7 +108,7 @@ func main() {
 	// DELETE + PATCH /admin/modpack/{uuid}
 	mux.Handle("/admin/modpack/",
 		middleware.Logger(
-			middleware.RateLimit(
+			middleware.RateLimitAdmin(
 				middleware.AuthAdmin(cfg.AdminKey,
 					handler.ModpackAdminHandler(modpacksDB, cfg.ModpacksDir),
 				),
@@ -119,7 +119,7 @@ func main() {
 	// GET /admin/disk-quota
 	mux.Handle("/admin/disk-quota",
 		middleware.Logger(
-			middleware.RateLimit(
+			middleware.RateLimitAdmin(
 				middleware.AuthAdmin(cfg.AdminKey,
 					handler.DiskQuotaHandler(cfg.GamesDir),
 				),

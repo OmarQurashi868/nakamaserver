@@ -22,11 +22,17 @@ HTTP 401 Unauthorized
 
 ## Rate Limiting
 
-All endpoints share a **token-bucket rate limit of 10 requests per minute per IP** (burst of 10).
+Rate limits use per-IP token buckets. Separate limits apply depending on the key used:
+
+| Endpoints | Rate | Burst | Retry-After |
+|-----------|------|-------|--------------|
+| `/query`, `/download/...` (download key) | 10 req/min | 10 | 6s |
+| `/admin/...` (admin key) | 120 req/min | 60 | 1s |
+
 When the limit is exceeded:
 ```
 HTTP 429 Too Many Requests
-Retry-After: 6
+Retry-After: <seconds>
 {"error":"rate limit exceeded"}
 ```
 
@@ -203,7 +209,7 @@ curl -X POST http://localhost:8080/admin/upload/game \
 | `409 Conflict` | A game with this title + version already exists |
 | `500 Internal Server Error` | Disk or database error |
 
-> The stored filename is derived from `title` and `version` with unsafe characters replaced by underscores (e.g. `My Game` + `1.0` → `My_Game_1.0.zip`). The `title` + `version` pair must be unique. A UUID is assigned at upload and returned — save this UUID for future download, delete, and patch operations.
+> The stored filename is derived from `title` and `version` with unsafe characters replaced by underscores (e.g. `My Game` + `1.0` → `My_Game_1.0.zip`). The `title` + `version` pair must be unique. A UUID is assigned at upload and returned — save this UUID for future download, delete, and patch operations. **app_id is per-title:** setting it on any version automatically syncs it to all other versions of the same game.
 
 ---
 

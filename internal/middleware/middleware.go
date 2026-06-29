@@ -46,7 +46,7 @@ func AuthEither(adminKey, downloadKey string, next http.Handler) http.Handler {
 	})
 }
 
-// --- Per-IP rate limiter (token bucket, 10 req/min) ---
+// --- Per-IP rate limiter (token bucket) ---
 
 type bucket struct {
 	tokens   float64
@@ -54,20 +54,21 @@ type bucket struct {
 	mu       sync.Mutex
 }
 
-const (
-	ratePerMin  = 10.0
-	burstSize   = 10.0
-	refillEvery = time.Minute / ratePerMin // 6s per token
-)
-
 type ipRateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*bucket
+	mu          sync.Mutex
+	buckets     map[string]*bucket
+	ratePerMin  float64
+	burstSize   float64
+	retryAfter  string
 }
 
-func newIPRateLimiter() *ipRateLimiter {
-	rl := &ipRateLimiter{buckets: make(map[string]*bucket)}
-	// Periodic cleanup of idle buckets
+func newIPRateLimiter(ratePerMin, burstSize float64, retryAfter string) *ipRateLimiter {
+	rl := &ipRateLimiter{
+		buckets:     make(map[string]*bucket),
+		ratePerMin:  ratePerMin,
+		burstSize:   burstSize,
+		retryAfter:  retryAfter,
+	}
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		for range ticker.C {
@@ -91,7 +92,7 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
 	b, ok := rl.buckets[ip]
 	if !ok {
-		b = &bucket{tokens: burstSize, lastFill: time.Now()}
+		b = &bucket{tokens: rl.burstSize, lastFill: time.Now()}
 		rl.buckets[ip] = b
 	}
 	rl.mu.Unlock()
@@ -100,9 +101,9 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	defer b.mu.Unlock()
 	now := time.Now()
 	elapsed := now.Sub(b.lastFill)
-	b.tokens += elapsed.Seconds() * (ratePerMin / 60.0)
-	if b.tokens > burstSize {
-		b.tokens = burstSize
+	b.tokens += elapsed.Seconds() * (rl.ratePerMin / 60.0)
+	if b.tokens > rl.burstSize {
+		b.tokens = rl.burstSize
 	}
 	b.lastFill = now
 	if b.tokens >= 1 {
@@ -112,19 +113,39 @@ func (rl *ipRateLimiter) allow(ip string) bool {
 	return false
 }
 
-// RateLimitPerIP is a global singleton rate limiter applied to all routes.
-var rateLimiter = newIPRateLimiter()
+// downloadLimiter: 10 req/min per IP, burst 10.
+var downloadLimiter = newIPRateLimiter(10, 10, "6")
 
-// RateLimit applies a 10 req/min per-IP token-bucket rate limit.
+// adminLimiter: 120 req/min per IP, burst 60.
+var adminLimiter = newIPRateLimiter(120, 60, "1")
+
+// RateLimit applies the download (user) rate limit: 10 req/min per IP.
 func RateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			ip = r.RemoteAddr
 		}
-		if !rateLimiter.allow(ip) {
+		if !downloadLimiter.allow(ip) {
 			logger.Warn("rate limit hit", map[string]any{"ip": ip, "path": r.URL.Path})
 			w.Header().Set("Retry-After", "6")
+			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RateLimitAdmin applies the admin rate limit: 120 req/min per IP, burst 60.
+func RateLimitAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			ip = r.RemoteAddr
+		}
+		if !adminLimiter.allow(ip) {
+			logger.Warn("admin rate limit hit", map[string]any{"ip": ip, "path": r.URL.Path})
+			w.Header().Set("Retry-After", "1")
 			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 			return
 		}
