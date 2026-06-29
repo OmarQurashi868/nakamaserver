@@ -29,11 +29,11 @@ func TestQueryHandler(t *testing.T) {
 	defer modpacksDB.Close()
 
 	// Insert test game & modpack
-	_, _, err = gamesDB.InsertGame("Minecraft", "1.20", "Minecraft_1.20.zip", "minecraft.exe", "", 1000)
+	_, _, err = gamesDB.InsertGame("Minecraft", "1.20", "Minecraft_1.20.zip", "minecraft.exe", "", "", 1000)
 	if err != nil {
 		t.Fatalf("InsertGame: %v", err)
 	}
-	_, _, err = modpacksDB.InsertModpack("Minecraft", "RLCraft", "Minecraft_RLCraft.zip", 500)
+	_, _, err = modpacksDB.InsertModpack("Minecraft", "RLCraft", "Minecraft_RLCraft.zip", "", 500)
 	if err != nil {
 		t.Fatalf("InsertModpack: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestPatchGame(t *testing.T) {
 	}
 	defer gamesDB.Close()
 
-	uuid, _, err := gamesDB.InsertGame("Patch Game", "1.0", "patch.zip", "patch.exe", "old_steam", 100)
+	uuid, _, err := gamesDB.InsertGame("Patch Game", "1.0", "patch.zip", "patch.exe", "old_steam", "", 100)
 	if err != nil {
 		t.Fatalf("InsertGame: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestPatchModpack(t *testing.T) {
 	}
 	defer modpacksDB.Close()
 
-	uuid, _, err := modpacksDB.InsertModpack("Old Game", "Old Mod", "old.zip", 200)
+	uuid, _, err := modpacksDB.InsertModpack("Old Game", "Old Mod", "old.zip", "", 200)
 	if err != nil {
 		t.Fatalf("InsertModpack: %v", err)
 	}

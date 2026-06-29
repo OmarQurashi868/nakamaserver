@@ -62,6 +62,7 @@ X-API-Key: <admin-key or download-key>
       "file_size_bytes": 1073741824,
       "launch_exe": "game.exe",
       "app_id": "",
+      "notes": "",
       "uploaded_at": "2026-06-28T01:00:00Z",
       "downloads": 42
     }
@@ -74,6 +75,7 @@ X-API-Key: <admin-key or download-key>
       "modpack_title": "Cool Mod",
       "file_name": "My_Game_Cool_Mod.zip",
       "file_size_bytes": 52428800,
+      "notes": "",
       "uploaded_at": "2026-06-28T02:00:00Z",
       "downloads": 7
     }
@@ -174,6 +176,7 @@ Content-Type: multipart/form-data
 | `version` | string | Yes | Version string (e.g. `1.0`, `2.1.3`) |
 | `launch_exe` | string | Yes | Relative path to the executable inside the zip (e.g. `game.exe`) |
 | `app_id` | string | No | External app/store ID for the game (e.g. Steam App ID) |
+| `notes` | string | No | Free-form notes about the game |
 | `file` | file | Yes | The zip archive to upload |
 
 **Example (curl)**
@@ -219,6 +222,7 @@ Content-Type: multipart/form-data
 |-------|------|----------|-------------|
 | `game_title` | string | Yes | Title of the game this modpack is for |
 | `modpack_title` | string | Yes | Display name of the modpack |
+| `notes` | string | No | Free-form notes about the modpack |
 | `file` | file | Yes | The zip archive to upload |
 
 **Example (curl)**
@@ -331,7 +335,7 @@ Content-Type: application/json
 ```
 
 ```json
-{"title": "New Title", "version": "2.0", "app_id": "999999", "launch_exe": "new_launcher.exe"}
+{"title": "New Title", "version": "2.0", "app_id": "999999", "notes": "Updated notes", "launch_exe": "new_launcher.exe"}
 ```
 
 | Field | Type | Description |
@@ -339,6 +343,7 @@ Content-Type: application/json
 | `title` | string | New display name for the game |
 | `version` | string | New version string |
 | `app_id` | string | External app/store ID (e.g. Steam App ID) |
+| `notes` | string | Free-form notes about the game |
 | `launch_exe` | string | Relative path to the executable inside the zip |
 
 All fields are optional. Only include the fields you want to change.
@@ -380,13 +385,14 @@ Content-Type: application/json
 ```
 
 ```json
-{"game_title": "New Game", "modpack_title": "Updated Mod Name"}
+{"game_title": "New Game", "modpack_title": "Updated Mod Name", "notes": "Updated notes"}
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `game_title` | string | New game title this modpack belongs to |
 | `modpack_title` | string | New display name for the modpack |
+| `notes` | string | Free-form notes about the modpack |
 
 All fields are optional. Only include the fields you want to change.
 

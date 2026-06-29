@@ -31,7 +31,8 @@ type Game struct {
 	FileName   string `json:"file_name"`
 	FileSizeB  int64  `json:"file_size_bytes"`
 	LaunchExe  string `json:"launch_exe"`
-	AppID    string `json:"app_id"`
+	AppID      string `json:"app_id"`
+	Notes      string `json:"notes"`
 	UploadedAt string `json:"uploaded_at"`
 	Downloads  int64  `json:"downloads"`
 }
@@ -44,6 +45,7 @@ type Modpack struct {
 	ModpackTitle string `json:"modpack_title"`
 	FileName     string `json:"file_name"`
 	FileSizeB    int64  `json:"file_size_bytes"`
+	Notes        string `json:"notes"`
 	UploadedAt   string `json:"uploaded_at"`
 	Downloads    int64  `json:"downloads"`
 }
@@ -104,7 +106,8 @@ func migrateGames(db *sql.DB) error {
 			file_name   TEXT NOT NULL,
 			file_size_b INTEGER NOT NULL,
 			launch_exe  TEXT NOT NULL,
-			app_id    TEXT NOT NULL DEFAULT '',
+			app_id      TEXT NOT NULL DEFAULT '',
+			notes       TEXT NOT NULL DEFAULT '',
 			uploaded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 			downloads   INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(title, version)
@@ -130,6 +133,16 @@ func migrateGames(db *sql.DB) error {
 	}
 	if count == 0 {
 		_, err = db.Exec("ALTER TABLE games ADD COLUMN app_id TEXT NOT NULL DEFAULT ''")
+		if err != nil {
+			return err
+		}
+	}
+	err = db.QueryRow("SELECT count(*) FROM pragma_table_info('games') WHERE name='notes'").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = db.Exec("ALTER TABLE games ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 		if err != nil {
 			return err
 		}
@@ -177,6 +190,7 @@ func migrateModpacks(db *sql.DB) error {
 			modpack_title TEXT NOT NULL,
 			file_name     TEXT NOT NULL,
 			file_size_b   INTEGER NOT NULL,
+			notes         TEXT NOT NULL DEFAULT '',
 			uploaded_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 			downloads     INTEGER NOT NULL DEFAULT 0,
 			UNIQUE(game_title, modpack_title)
@@ -192,6 +206,16 @@ func migrateModpacks(db *sql.DB) error {
 	}
 	if count == 0 {
 		_, err = db.Exec("ALTER TABLE modpacks ADD COLUMN downloads INTEGER NOT NULL DEFAULT 0")
+		if err != nil {
+			return err
+		}
+	}
+	err = db.QueryRow("SELECT count(*) FROM pragma_table_info('modpacks') WHERE name='notes'").Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = db.Exec("ALTER TABLE modpacks ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 		if err != nil {
 			return err
 		}
@@ -232,11 +256,11 @@ func migrateModpacks(db *sql.DB) error {
 // --- Games methods ---
 
 // InsertGame inserts a game record. Returns the new UUID and whether it was inserted.
-func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID string, sizeB int64) (string, bool, error) {
+func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID, notes string, sizeB int64) (string, bool, error) {
 	uuid := newUUID()
 	res, err := g.db.Exec(
-		`INSERT OR IGNORE INTO games (uuid, title, version, file_name, file_size_b, launch_exe, app_id) VALUES (?,?,?,?,?,?,?)`,
-		uuid, title, version, fileName, sizeB, launchExe, appID,
+		`INSERT OR IGNORE INTO games (uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes) VALUES (?,?,?,?,?,?,?,?)`,
+		uuid, title, version, fileName, sizeB, launchExe, appID, notes,
 	)
 	if err != nil {
 		return "", false, fmt.Errorf("insert game: %w", err)
@@ -251,11 +275,11 @@ func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID string, 
 // GetGame looks up a game by title and version.
 func (g *GamesDB) GetGame(title, version string) (*Game, error) {
 	row := g.db.QueryRow(
-		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, uploaded_at, downloads FROM games WHERE title=? AND version=?`,
+		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, uploaded_at, downloads FROM games WHERE title=? AND version=?`,
 		title, version,
 	)
 	var game Game
-	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.UploadedAt, &game.Downloads)
+	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.UploadedAt, &game.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -268,11 +292,11 @@ func (g *GamesDB) GetGame(title, version string) (*Game, error) {
 // GetGameByUUID looks up a game by its UUID.
 func (g *GamesDB) GetGameByUUID(uuid string) (*Game, error) {
 	row := g.db.QueryRow(
-		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, uploaded_at, downloads FROM games WHERE uuid=?`,
+		`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, uploaded_at, downloads FROM games WHERE uuid=?`,
 		uuid,
 	)
 	var game Game
-	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.UploadedAt, &game.Downloads)
+	err := row.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.UploadedAt, &game.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -298,7 +322,7 @@ func (g *GamesDB) DeleteGameByUUID(uuid string) (string, bool, error) {
 // UpdateGame updates fields on a game identified by UUID.
 // Allowed keys: title, version, app_id, launch_exe.
 func (g *GamesDB) UpdateGame(uuid string, fields map[string]string) error {
-	allowed := map[string]bool{"title": true, "version": true, "app_id": true, "launch_exe": true}
+	allowed := map[string]bool{"title": true, "version": true, "app_id": true, "notes": true, "launch_exe": true}
 	for k := range fields {
 		if !allowed[k] {
 			return fmt.Errorf("unknown field: %s", k)
@@ -315,7 +339,7 @@ func (g *GamesDB) UpdateGame(uuid string, fields map[string]string) error {
 
 // ListGames returns all game records.
 func (g *GamesDB) ListGames() ([]Game, error) {
-	rows, err := g.db.Query(`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, uploaded_at, downloads FROM games ORDER BY title, version`)
+	rows, err := g.db.Query(`SELECT id, uuid, title, version, file_name, file_size_b, launch_exe, app_id, notes, uploaded_at, downloads FROM games ORDER BY title, version`)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +347,7 @@ func (g *GamesDB) ListGames() ([]Game, error) {
 	var games []Game
 	for rows.Next() {
 		var game Game
-		if err := rows.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.UploadedAt, &game.Downloads); err != nil {
+		if err := rows.Scan(&game.ID, &game.UUID, &game.Title, &game.Version, &game.FileName, &game.FileSizeB, &game.LaunchExe, &game.AppID, &game.Notes, &game.UploadedAt, &game.Downloads); err != nil {
 			return nil, err
 		}
 		games = append(games, game)
@@ -350,11 +374,11 @@ func (g *GamesDB) IncrementGameDownloads(uuid string) error {
 // --- Modpacks methods ---
 
 // InsertModpack inserts a modpack record. Returns the new UUID and whether it was inserted.
-func (m *ModpacksDB) InsertModpack(gameTitle, modpackTitle, fileName string, sizeB int64) (string, bool, error) {
+func (m *ModpacksDB) InsertModpack(gameTitle, modpackTitle, fileName, notes string, sizeB int64) (string, bool, error) {
 	uuid := newUUID()
 	res, err := m.db.Exec(
-		`INSERT OR IGNORE INTO modpacks (uuid, game_title, modpack_title, file_name, file_size_b) VALUES (?,?,?,?,?)`,
-		uuid, gameTitle, modpackTitle, fileName, sizeB,
+		`INSERT OR IGNORE INTO modpacks (uuid, game_title, modpack_title, file_name, file_size_b, notes) VALUES (?,?,?,?,?,?)`,
+		uuid, gameTitle, modpackTitle, fileName, sizeB, notes,
 	)
 	if err != nil {
 		return "", false, fmt.Errorf("insert modpack: %w", err)
@@ -369,11 +393,11 @@ func (m *ModpacksDB) InsertModpack(gameTitle, modpackTitle, fileName string, siz
 // GetModpack looks up a modpack by game title and modpack title.
 func (m *ModpacksDB) GetModpack(gameTitle, modpackTitle string) (*Modpack, error) {
 	row := m.db.QueryRow(
-		`SELECT id, uuid, game_title, modpack_title, file_name, file_size_b, uploaded_at, downloads FROM modpacks WHERE game_title=? AND modpack_title=?`,
+		`SELECT id, uuid, game_title, modpack_title, file_name, file_size_b, notes, uploaded_at, downloads FROM modpacks WHERE game_title=? AND modpack_title=?`,
 		gameTitle, modpackTitle,
 	)
 	var mp Modpack
-	err := row.Scan(&mp.ID, &mp.UUID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.UploadedAt, &mp.Downloads)
+	err := row.Scan(&mp.ID, &mp.UUID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.Notes, &mp.UploadedAt, &mp.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -386,11 +410,11 @@ func (m *ModpacksDB) GetModpack(gameTitle, modpackTitle string) (*Modpack, error
 // GetModpackByUUID looks up a modpack by its UUID.
 func (m *ModpacksDB) GetModpackByUUID(uuid string) (*Modpack, error) {
 	row := m.db.QueryRow(
-		`SELECT id, uuid, game_title, modpack_title, file_name, file_size_b, uploaded_at, downloads FROM modpacks WHERE uuid=?`,
+		`SELECT id, uuid, game_title, modpack_title, file_name, file_size_b, notes, uploaded_at, downloads FROM modpacks WHERE uuid=?`,
 		uuid,
 	)
 	var mp Modpack
-	err := row.Scan(&mp.ID, &mp.UUID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.UploadedAt, &mp.Downloads)
+	err := row.Scan(&mp.ID, &mp.UUID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.Notes, &mp.UploadedAt, &mp.Downloads)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -416,7 +440,7 @@ func (m *ModpacksDB) DeleteModpackByUUID(uuid string) (string, bool, error) {
 // UpdateModpack updates fields on a modpack identified by UUID.
 // Allowed keys: game_title, modpack_title.
 func (m *ModpacksDB) UpdateModpack(uuid string, fields map[string]string) error {
-	allowed := map[string]bool{"game_title": true, "modpack_title": true}
+	allowed := map[string]bool{"game_title": true, "modpack_title": true, "notes": true}
 	for k := range fields {
 		if !allowed[k] {
 			return fmt.Errorf("unknown field: %s", k)
@@ -433,7 +457,7 @@ func (m *ModpacksDB) UpdateModpack(uuid string, fields map[string]string) error 
 
 // ListModpacks returns all modpack records.
 func (m *ModpacksDB) ListModpacks() ([]Modpack, error) {
-	rows, err := m.db.Query(`SELECT id, uuid, game_title, modpack_title, file_name, file_size_b, uploaded_at, downloads FROM modpacks ORDER BY game_title, modpack_title`)
+	rows, err := m.db.Query(`SELECT id, uuid, game_title, modpack_title, file_name, file_size_b, notes, uploaded_at, downloads FROM modpacks ORDER BY game_title, modpack_title`)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +465,7 @@ func (m *ModpacksDB) ListModpacks() ([]Modpack, error) {
 	var modpacks []Modpack
 	for rows.Next() {
 		var mp Modpack
-		if err := rows.Scan(&mp.ID, &mp.UUID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.UploadedAt, &mp.Downloads); err != nil {
+		if err := rows.Scan(&mp.ID, &mp.UUID, &mp.GameTitle, &mp.ModpackTitle, &mp.FileName, &mp.FileSizeB, &mp.Notes, &mp.UploadedAt, &mp.Downloads); err != nil {
 			return nil, err
 		}
 		modpacks = append(modpacks, mp)

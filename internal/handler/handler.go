@@ -75,7 +75,7 @@ func QueryHandler(gdb *store.GamesDB, mdb *store.ModpacksDB) http.HandlerFunc {
 // --- Upload ---
 
 // UploadGameHandler returns a handler for POST /admin/upload/game.
-// Expects multipart/form-data with fields: title, version, launch_exe, app_id (optional), file (the zip).
+// Expects multipart/form-data with fields: title, version, launch_exe, app_id (optional), notes (optional), file (the zip).
 func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -94,6 +94,7 @@ func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http
 		version := strings.TrimSpace(r.FormValue("version"))
 		launchExe := strings.TrimSpace(r.FormValue("launch_exe"))
 		appID := strings.TrimSpace(r.FormValue("app_id"))
+		notes := strings.TrimSpace(r.FormValue("notes"))
 		if title == "" || version == "" || launchExe == "" {
 			jsonErr(w, "title, version, and launch_exe are required", http.StatusBadRequest)
 			return
@@ -142,7 +143,7 @@ func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http
 			return
 		}
 
-		uuid, inserted, err := gdb.InsertGame(title, version, fileName, launchExe, appID, written)
+		uuid, inserted, err := gdb.InsertGame(title, version, fileName, launchExe, appID, notes, written)
 		if err != nil {
 			os.Remove(destPath)
 			logger.Error("insert game", map[string]any{"err": err.Error()})
@@ -161,7 +162,7 @@ func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http
 }
 
 // UploadModpackHandler returns a handler for POST /admin/upload/modpack.
-// Expects multipart/form-data with fields: game_title, modpack_title, file (the zip).
+// Expects multipart/form-data with fields: game_title, modpack_title, notes (optional), file (the zip).
 func UploadModpackHandler(mdb *store.ModpacksDB, modpacksDir string, maxBytes int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -178,6 +179,7 @@ func UploadModpackHandler(mdb *store.ModpacksDB, modpacksDir string, maxBytes in
 		}()
 		gameTitle := strings.TrimSpace(r.FormValue("game_title"))
 		modpackTitle := strings.TrimSpace(r.FormValue("modpack_title"))
+		notes := strings.TrimSpace(r.FormValue("notes"))
 		if gameTitle == "" || modpackTitle == "" {
 			jsonErr(w, "game_title and modpack_title are required", http.StatusBadRequest)
 			return
@@ -224,7 +226,7 @@ func UploadModpackHandler(mdb *store.ModpacksDB, modpacksDir string, maxBytes in
 			return
 		}
 
-		uuid, inserted, err := mdb.InsertModpack(gameTitle, modpackTitle, fileName, written)
+		uuid, inserted, err := mdb.InsertModpack(gameTitle, modpackTitle, fileName, notes, written)
 		if err != nil {
 			os.Remove(destPath)
 			logger.Error("insert modpack", map[string]any{"err": err.Error()})
@@ -445,7 +447,7 @@ func ModpackAdminHandler(mdb *store.ModpacksDB, modpacksDir string) http.Handler
 // --- Patch ---
 
 // PatchGameHandler returns a handler for PATCH /admin/game/{uuid}.
-// Accepts JSON body with optional fields: title, version, app_id, launch_exe.
+// Accepts JSON body with optional fields: title, version, app_id, notes, launch_exe.
 func PatchGameHandler(gdb *store.GamesDB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
@@ -492,7 +494,7 @@ func PatchGameHandler(gdb *store.GamesDB) http.HandlerFunc {
 }
 
 // PatchModpackHandler returns a handler for PATCH /admin/modpack/{uuid}.
-// Accepts JSON body with optional fields: game_title, modpack_title.
+// Accepts JSON body with optional fields: game_title, modpack_title, notes.
 func PatchModpackHandler(mdb *store.ModpacksDB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {

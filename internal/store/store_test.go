@@ -24,7 +24,7 @@ func TestGamesDB(t *testing.T) {
 	}
 
 	// Insert game
-	uuid, ok, err := db.InsertGame("Among Us", "1.13", "among_us_1.13.zip", "among_us.exe", "", 12345)
+	uuid, ok, err := db.InsertGame("Among Us", "1.13", "among_us_1.13.zip", "among_us.exe", "", "", 12345)
 	if err != nil {
 		t.Fatalf("InsertGame failed: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestGamesDB(t *testing.T) {
 	}
 
 	// Insert duplicate game
-	_, ok, err = db.InsertGame("Among Us", "1.13", "among_us_1.13_dup.zip", "among_us.exe", "", 12345)
+	_, ok, err = db.InsertGame("Among Us", "1.13", "among_us_1.13_dup.zip", "among_us.exe", "", "", 12345)
 	if err != nil {
 		t.Fatalf("InsertGame duplicate failed: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestGamesDB(t *testing.T) {
 	}
 
 	// Test UpdateGame
-	uuid2, ok, err := db.InsertGame("Minecraft", "1.20", "mc.zip", "mc.exe", "12345", 5000)
+	uuid2, ok, err := db.InsertGame("Minecraft", "1.20", "mc.zip", "mc.exe", "12345", "", 5000)
 	if err != nil {
 		t.Fatalf("InsertGame failed: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestModpacksDB(t *testing.T) {
 	}
 
 	// Insert modpack
-	uuid, ok, err := db.InsertModpack("Among Us", "Town of Us", "Among_Us_Town_of_Us.zip", 54321)
+	uuid, ok, err := db.InsertModpack("Among Us", "Town of Us", "Among_Us_Town_of_Us.zip", "", 54321)
 	if err != nil {
 		t.Fatalf("InsertModpack failed: %v", err)
 	}
