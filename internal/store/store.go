@@ -269,9 +269,12 @@ func (g *GamesDB) InsertGame(title, version, fileName, launchExe, appID, notes s
 	if rows == 0 {
 		return "", false, nil
 	}
-	// Sync app_id across all versions of the same title.
+	// Sync app_id and notes across all versions of the same title.
 	if appID != "" {
 		_, _ = g.db.Exec(`UPDATE games SET app_id = ? WHERE title = ? AND app_id != ?`, appID, title, appID)
+	}
+	if notes != "" {
+		_, _ = g.db.Exec(`UPDATE games SET notes = ? WHERE title = ? AND notes != ?`, notes, title, notes)
 	}
 	return uuid, true, nil
 }
@@ -325,7 +328,7 @@ func (g *GamesDB) DeleteGameByUUID(uuid string) (string, bool, error) {
 
 // UpdateGame updates fields on a game identified by UUID.
 // Allowed keys: title, version, app_id, notes, launch_exe.
-// When app_id is updated, all versions of the same title are synced.
+// app_id and notes sync across all versions of the same title.
 func (g *GamesDB) UpdateGame(uuid string, fields map[string]string) error {
 	allowed := map[string]bool{"title": true, "version": true, "app_id": true, "notes": true, "launch_exe": true}
 	for k := range fields {
@@ -333,11 +336,18 @@ func (g *GamesDB) UpdateGame(uuid string, fields map[string]string) error {
 			return fmt.Errorf("unknown field: %s", k)
 		}
 	}
-	// If app_id is being updated, sync across all versions of same title.
-	if appID, ok := fields["app_id"]; ok && appID != "" {
+	// If app_id or notes updated, sync across all versions of same title.
+	_, syncApp := fields["app_id"]
+	_, syncNotes := fields["notes"]
+	if syncApp || syncNotes {
 		var title string
 		if err := g.db.QueryRow(`SELECT title FROM games WHERE uuid = ?`, uuid).Scan(&title); err == nil {
-			_, _ = g.db.Exec(`UPDATE games SET app_id = ? WHERE title = ?`, appID, title)
+			if syncApp && fields["app_id"] != "" {
+				_, _ = g.db.Exec(`UPDATE games SET app_id = ? WHERE title = ?`, fields["app_id"], title)
+			}
+			if syncNotes && fields["notes"] != "" {
+				_, _ = g.db.Exec(`UPDATE games SET notes = ? WHERE title = ?`, fields["notes"], title)
+			}
 		}
 	}
 	for k, v := range fields {
