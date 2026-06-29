@@ -40,7 +40,7 @@ Retry-After: <seconds>
 
 ## User Endpoints
 
-These endpoints use the **download key**.
+These endpoints use the **download key** (or **admin key**).
 
 ---
 
@@ -99,7 +99,7 @@ Streams a game zip file identified by its UUID. Only **one active download per I
 **Request**
 ```
 GET /download/game/a1b2c3d4-e5f6-4789-abcd-ef0123456789
-X-API-Key: <download-key>
+X-API-Key: <admin-key or download-key>
 ```
 
 | Parameter | Location | Description |

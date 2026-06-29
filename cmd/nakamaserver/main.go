@@ -72,7 +72,7 @@ func main() {
 	mux.Handle("/download/game/",
 		middleware.Logger(
 			middleware.RateLimit(
-				middleware.AuthDownload(cfg.DownloadKey,
+				middleware.AuthEither(cfg.AdminKey, cfg.DownloadKey,
 					middleware.OneDownloadPerIP(
 						handler.DownloadGameHandler(gamesDB, cfg.GamesDir),
 					),
@@ -85,7 +85,7 @@ func main() {
 	mux.Handle("/download/modpack/",
 		middleware.Logger(
 			middleware.RateLimit(
-				middleware.AuthDownload(cfg.DownloadKey,
+				middleware.AuthEither(cfg.AdminKey, cfg.DownloadKey,
 					middleware.OneDownloadPerIP(
 						handler.DownloadModpackHandler(modpacksDB, cfg.ModpacksDir),
 					),
