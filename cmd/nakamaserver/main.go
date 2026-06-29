@@ -68,7 +68,7 @@ func main() {
 		),
 	)
 
-	// GET /download/game/{title}/{version} — 1 active download per IP
+	// GET /download/game/{uuid} — 1 active download per IP
 	mux.Handle("/download/game/",
 		middleware.Logger(
 			middleware.RateLimit(
@@ -81,7 +81,7 @@ func main() {
 		),
 	)
 
-	// GET /download/modpack/{gameTitle}/{modpackTitle} — 1 active download per IP
+	// GET /download/modpack/{uuid} — 1 active download per IP
 	mux.Handle("/download/modpack/",
 		middleware.Logger(
 			middleware.RateLimit(
@@ -94,23 +94,23 @@ func main() {
 		),
 	)
 
-	// DELETE /admin/game/{title}/{version}
+	// DELETE + PATCH /admin/game/{uuid}
 	mux.Handle("/admin/game/",
 		middleware.Logger(
 			middleware.RateLimit(
 				middleware.AuthAdmin(cfg.AdminKey,
-					handler.DeleteGameHandler(gamesDB, cfg.GamesDir),
+					handler.GameAdminHandler(gamesDB, cfg.GamesDir),
 				),
 			),
 		),
 	)
 
-	// DELETE /admin/modpack/{gameTitle}/{modpackTitle}
+	// DELETE + PATCH /admin/modpack/{uuid}
 	mux.Handle("/admin/modpack/",
 		middleware.Logger(
 			middleware.RateLimit(
 				middleware.AuthAdmin(cfg.AdminKey,
-					handler.DeleteModpackHandler(modpacksDB, cfg.ModpacksDir),
+					handler.ModpackAdminHandler(modpacksDB, cfg.ModpacksDir),
 				),
 			),
 		),

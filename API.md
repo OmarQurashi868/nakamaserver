@@ -55,11 +55,13 @@ X-API-Key: <admin-key or download-key>
   "games": [
     {
       "id": 1,
+      "uuid": "a1b2c3d4-e5f6-4789-abcd-ef0123456789",
       "title": "My Game",
       "version": "1.0",
       "file_name": "My_Game_1.0.zip",
       "file_size_bytes": 1073741824,
       "launch_exe": "game.exe",
+      "app_id": "",
       "uploaded_at": "2026-06-28T01:00:00Z",
       "downloads": 42
     }
@@ -67,6 +69,7 @@ X-API-Key: <admin-key or download-key>
   "modpacks": [
     {
       "id": 1,
+      "uuid": "b2c3d4e5-f6a7-4890-bcde-f01234567890",
       "game_title": "My Game",
       "modpack_title": "Cool Mod",
       "file_name": "My_Game_Cool_Mod.zip",
@@ -80,20 +83,19 @@ X-API-Key: <admin-key or download-key>
 
 ---
 
-### `GET /download/game/{title}/{version}`
+### `GET /download/game/{uuid}`
 
-Streams a game zip file. Only **one active download per IP** is allowed at a time.
+Streams a game zip file identified by its UUID. Only **one active download per IP** is allowed at a time.
 
 **Request**
 ```
-GET /download/game/My%20Game/1.0
+GET /download/game/a1b2c3d4-e5f6-4789-abcd-ef0123456789
 X-API-Key: <download-key>
 ```
 
 | Parameter | Location | Description |
 |-----------|----------|-------------|
-| `title`   | URL path | Game title (URL-encoded if it contains spaces) |
-| `version` | URL path | Game version string |
+| `uuid`    | URL path | Game UUID (returned at upload, listed in `/query`) |
 
 **Response `200 OK`**
 ```
@@ -108,28 +110,27 @@ Content-Length: 1073741824
 
 | Status | Condition |
 |--------|-----------|
-| `400 Bad Request` | Missing title or version in path |
-| `404 Not Found` | Game not found in catalog or file missing on disk |
+| `400 Bad Request` | Missing or malformed UUID in path |
+| `404 Not Found` | Game not found or file missing on disk |
 | `429 Too Many Requests` | Another download is already active from this IP |
 
 > Only one download can be active per IP at a time. Wait for the current download to finish before starting another.
 
 ---
 
-### `GET /download/modpack/{gameTitle}/{modpackTitle}`
+### `GET /download/modpack/{uuid}`
 
-Streams a modpack zip file. Only **one active download per IP** is allowed at a time.
+Streams a modpack zip file identified by its UUID. Only **one active download per IP** is allowed at a time.
 
 **Request**
 ```
-GET /download/modpack/My%20Game/Cool%20Mod
+GET /download/modpack/b2c3d4e5-f6a7-4890-bcde-f01234567890
 X-API-Key: <download-key>
 ```
 
 | Parameter | Location | Description |
 |-----------|----------|-------------|
-| `gameTitle`    | URL path | Title of the game this modpack belongs to |
-| `modpackTitle` | URL path | Title of the modpack |
+| `uuid`    | URL path | Modpack UUID (returned at upload, listed in `/query`) |
 
 **Response `200 OK`**
 ```
@@ -144,8 +145,8 @@ Content-Length: 52428800
 
 | Status | Condition |
 |--------|-----------|
-| `400 Bad Request` | Missing gameTitle or modpackTitle in path |
-| `404 Not Found` | Modpack not found in catalog or file missing on disk |
+| `400 Bad Request` | Missing or malformed UUID in path |
+| `404 Not Found` | Modpack not found or file missing on disk |
 | `429 Too Many Requests` | Another download is already active from this IP |
 
 ---
@@ -158,7 +159,7 @@ These endpoints use the **admin key**.
 
 ### `POST /admin/upload/game`
 
-Uploads a game zip and registers it in the catalog.
+Uploads a game zip and registers it in the catalog. Returns the assigned UUID.
 
 **Request**
 ```
@@ -172,6 +173,7 @@ Content-Type: multipart/form-data
 | `title` | string | Yes | Display name of the game |
 | `version` | string | Yes | Version string (e.g. `1.0`, `2.1.3`) |
 | `launch_exe` | string | Yes | Relative path to the executable inside the zip (e.g. `game.exe`) |
+| `app_id` | string | No | External app/store ID for the game (e.g. Steam App ID) |
 | `file` | file | Yes | The zip archive to upload |
 
 **Example (curl)**
@@ -181,12 +183,13 @@ curl -X POST http://localhost:8080/admin/upload/game \
   -F "title=My Game" \
   -F "version=1.0" \
   -F "launch_exe=game.exe" \
+  -F "app_id=123456" \
   -F "file=@/path/to/game.zip"
 ```
 
 **Response `200 OK`**
 ```json
-{"ok": true, "file": "My_Game_1.0.zip", "size_bytes": 1073741824}
+{"ok": true, "uuid": "a1b2c3d4-e5f6-4789-abcd-ef0123456789", "file": "My_Game_1.0.zip", "size_bytes": 1073741824}
 ```
 
 **Error responses**
@@ -197,13 +200,13 @@ curl -X POST http://localhost:8080/admin/upload/game \
 | `409 Conflict` | A game with this title + version already exists |
 | `500 Internal Server Error` | Disk or database error |
 
-> The stored filename is derived from `title` and `version` with unsafe characters replaced by underscores (e.g. `My Game` + `1.0` → `My_Game_1.0.zip`). The `title` + `version` pair must be unique.
+> The stored filename is derived from `title` and `version` with unsafe characters replaced by underscores (e.g. `My Game` + `1.0` → `My_Game_1.0.zip`). The `title` + `version` pair must be unique. A UUID is assigned at upload and returned — save this UUID for future download, delete, and patch operations.
 
 ---
 
 ### `POST /admin/upload/modpack`
 
-Uploads a modpack zip and registers it in the catalog.
+Uploads a modpack zip and registers it in the catalog. Returns the assigned UUID.
 
 **Request**
 ```
@@ -229,7 +232,7 @@ curl -X POST http://localhost:8080/admin/upload/modpack \
 
 **Response `200 OK`**
 ```json
-{"ok": true, "file": "My_Game_Cool_Mod.zip", "size_bytes": 52428800}
+{"ok": true, "uuid": "b2c3d4e5-f6a7-4890-bcde-f01234567890", "file": "My_Game_Cool_Mod.zip", "size_bytes": 52428800}
 ```
 
 **Error responses**
@@ -242,24 +245,23 @@ curl -X POST http://localhost:8080/admin/upload/modpack \
 
 ---
 
-### `DELETE /admin/game/{title}/{version}`
+### `DELETE /admin/game/{uuid}`
 
 Removes a game from the catalog and deletes its file from disk.
 
 **Request**
 ```
-DELETE /admin/game/My%20Game/1.0
+DELETE /admin/game/a1b2c3d4-e5f6-4789-abcd-ef0123456789
 X-API-Key: <admin-key>
 ```
 
 | Parameter | Location | Description |
 |-----------|----------|-------------|
-| `title`   | URL path | Game title |
-| `version` | URL path | Game version |
+| `uuid`    | URL path | Game UUID |
 
 **Example (curl)**
 ```bash
-curl -X DELETE "http://localhost:8080/admin/game/My%20Game/1.0" \
+curl -X DELETE "http://localhost:8080/admin/game/a1b2c3d4-e5f6-4789-abcd-ef0123456789" \
   -H "X-API-Key: <admin-key>"
 ```
 
@@ -272,32 +274,31 @@ curl -X DELETE "http://localhost:8080/admin/game/My%20Game/1.0" \
 
 | Status | Condition |
 |--------|-----------|
-| `400 Bad Request` | Missing title or version in path |
-| `404 Not Found` | Game not found in catalog |
+| `400 Bad Request` | Missing or malformed UUID in path |
+| `404 Not Found` | Game not found |
 | `500 Internal Server Error` | Database error |
 
 > Deletion is permanent. The zip is removed from disk and the catalog entry is dropped. This cannot be undone.
 
 ---
 
-### `DELETE /admin/modpack/{gameTitle}/{modpackTitle}`
+### `DELETE /admin/modpack/{uuid}`
 
 Removes a modpack from the catalog and deletes its file from disk.
 
 **Request**
 ```
-DELETE /admin/modpack/My%20Game/Cool%20Mod
+DELETE /admin/modpack/b2c3d4e5-f6a7-4890-bcde-f01234567890
 X-API-Key: <admin-key>
 ```
 
 | Parameter | Location | Description |
 |-----------|----------|-------------|
-| `gameTitle`    | URL path | Game title |
-| `modpackTitle` | URL path | Modpack title |
+| `uuid`    | URL path | Modpack UUID |
 
 **Example (curl)**
 ```bash
-curl -X DELETE "http://localhost:8080/admin/modpack/My%20Game/Cool%20Mod" \
+curl -X DELETE "http://localhost:8080/admin/modpack/b2c3d4e5-f6a7-4890-bcde-f01234567890" \
   -H "X-API-Key: <admin-key>"
 ```
 
@@ -310,11 +311,107 @@ curl -X DELETE "http://localhost:8080/admin/modpack/My%20Game/Cool%20Mod" \
 
 | Status | Condition |
 |--------|-----------|
-| `400 Bad Request` | Missing gameTitle or modpackTitle in path |
-| `404 Not Found` | Modpack not found in catalog |
+| `400 Bad Request` | Missing or malformed UUID in path |
+| `404 Not Found` | Modpack not found |
 | `500 Internal Server Error` | Database error |
 
 > Deletion is permanent. The zip is removed from disk and the catalog entry is dropped. This cannot be undone.
+
+---
+
+### `PATCH /admin/game/{uuid}`
+
+Updates properties of an existing game. All fields are optional — only the provided fields are modified.
+
+**Request**
+```
+PATCH /admin/game/a1b2c3d4-e5f6-4789-abcd-ef0123456789
+X-API-Key: <admin-key>
+Content-Type: application/json
+```
+
+```json
+{"title": "New Title", "version": "2.0", "app_id": "999999", "launch_exe": "new_launcher.exe"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | New display name for the game |
+| `version` | string | New version string |
+| `app_id` | string | External app/store ID (e.g. Steam App ID) |
+| `launch_exe` | string | Relative path to the executable inside the zip |
+
+All fields are optional. Only include the fields you want to change.
+
+**Example (curl)**
+```bash
+curl -X PATCH "http://localhost:8080/admin/game/a1b2c3d4-e5f6-4789-abcd-ef0123456789" \
+  -H "X-API-Key: <admin-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "999999"}'
+```
+
+**Response `200 OK`**
+```json
+{"ok": true}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400 Bad Request` | Invalid JSON body, no fields provided, or unknown field name |
+| `404 Not Found` | Game not found |
+| `500 Internal Server Error` | Database error |
+
+> Changing `title` or `version` does **not** rename the file on disk. The `file_name` field reflects the original upload name.
+
+---
+
+### `PATCH /admin/modpack/{uuid}`
+
+Updates properties of an existing modpack. All fields are optional — only the provided fields are modified.
+
+**Request**
+```
+PATCH /admin/modpack/b2c3d4e5-f6a7-4890-bcde-f01234567890
+X-API-Key: <admin-key>
+Content-Type: application/json
+```
+
+```json
+{"game_title": "New Game", "modpack_title": "Updated Mod Name"}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `game_title` | string | New game title this modpack belongs to |
+| `modpack_title` | string | New display name for the modpack |
+
+All fields are optional. Only include the fields you want to change.
+
+**Example (curl)**
+```bash
+curl -X PATCH "http://localhost:8080/admin/modpack/b2c3d4e5-f6a7-4890-bcde-f01234567890" \
+  -H "X-API-Key: <admin-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"modpack_title": "New Mod Name"}'
+```
+
+**Response `200 OK`**
+```json
+{"ok": true}
+```
+
+**Error responses**
+
+| Status | Condition |
+|--------|-----------|
+| `400 Bad Request` | Invalid JSON body, no fields provided, or unknown field name |
+| `404 Not Found` | Modpack not found |
+| `500 Internal Server Error` | Database error |
+
+> Changing `game_title` or `modpack_title` does **not** rename the file on disk.
 
 ---
 

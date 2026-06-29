@@ -4,11 +4,13 @@
 //	GET  /query                                 - list all games + modpacks (download key)
 //	POST /admin/upload/game                     - upload game zip (admin key)
 //	POST /admin/upload/modpack                  - upload modpack zip (admin key)
-//	GET  /download/game/{title}/{version}       - stream game zip (download key, 1/IP)
-//	GET  /download/modpack/{gameTitle}/{modpackTitle} - stream modpack zip (download key, 1/IP)
-//	DELETE /admin/game/{title}/{version}        - delete game (admin key)
-//	DELETE /admin/modpack/{gameTitle}/{modpackTitle}  - delete modpack (admin key)
-//	GET  /admin/disk-quota                     - disk quota status (admin key)
+//	GET  /download/game/{uuid}                  - stream game zip (download key, 1/IP)
+//	GET  /download/modpack/{uuid}               - stream modpack zip (download key, 1/IP)
+//	DELETE /admin/game/{uuid}                   - delete game (admin key)
+//	DELETE /admin/modpack/{uuid}                - delete modpack (admin key)
+//	PATCH /admin/game/{uuid}                    - update game fields (admin key)
+//	PATCH /admin/modpack/{uuid}                 - update modpack fields (admin key)
+//	GET  /admin/disk-quota                      - disk quota status (admin key)
 package handler
 
 import (
@@ -73,7 +75,7 @@ func QueryHandler(gdb *store.GamesDB, mdb *store.ModpacksDB) http.HandlerFunc {
 // --- Upload ---
 
 // UploadGameHandler returns a handler for POST /admin/upload/game.
-// Expects multipart/form-data with fields: title, version, launch_exe, file (the zip).
+// Expects multipart/form-data with fields: title, version, launch_exe, app_id (optional), file (the zip).
 func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -91,6 +93,7 @@ func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http
 		title := strings.TrimSpace(r.FormValue("title"))
 		version := strings.TrimSpace(r.FormValue("version"))
 		launchExe := strings.TrimSpace(r.FormValue("launch_exe"))
+		appID := strings.TrimSpace(r.FormValue("app_id"))
 		if title == "" || version == "" || launchExe == "" {
 			jsonErr(w, "title, version, and launch_exe are required", http.StatusBadRequest)
 			return
@@ -139,7 +142,7 @@ func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http
 			return
 		}
 
-		inserted, err := gdb.InsertGame(title, version, fileName, launchExe, written)
+		uuid, inserted, err := gdb.InsertGame(title, version, fileName, launchExe, appID, written)
 		if err != nil {
 			os.Remove(destPath)
 			logger.Error("insert game", map[string]any{"err": err.Error()})
@@ -152,8 +155,8 @@ func UploadGameHandler(gdb *store.GamesDB, gamesDir string, maxBytes int64) http
 			return
 		}
 
-		logger.Info("game uploaded", map[string]any{"title": title, "version": version, "bytes": written})
-		jsonOK(w, map[string]any{"ok": true, "file": fileName, "size_bytes": written})
+		logger.Info("game uploaded", map[string]any{"title": title, "version": version, "uuid": uuid, "bytes": written})
+		jsonOK(w, map[string]any{"ok": true, "uuid": uuid, "file": fileName, "size_bytes": written})
 	}
 }
 
@@ -221,7 +224,7 @@ func UploadModpackHandler(mdb *store.ModpacksDB, modpacksDir string, maxBytes in
 			return
 		}
 
-		inserted, err := mdb.InsertModpack(gameTitle, modpackTitle, fileName, written)
+		uuid, inserted, err := mdb.InsertModpack(gameTitle, modpackTitle, fileName, written)
 		if err != nil {
 			os.Remove(destPath)
 			logger.Error("insert modpack", map[string]any{"err": err.Error()})
@@ -234,30 +237,27 @@ func UploadModpackHandler(mdb *store.ModpacksDB, modpacksDir string, maxBytes in
 			return
 		}
 
-		logger.Info("modpack uploaded", map[string]any{"game": gameTitle, "modpack": modpackTitle, "bytes": written})
-		jsonOK(w, map[string]any{"ok": true, "file": fileName, "size_bytes": written})
+		logger.Info("modpack uploaded", map[string]any{"game": gameTitle, "modpack": modpackTitle, "uuid": uuid, "bytes": written})
+		jsonOK(w, map[string]any{"ok": true, "uuid": uuid, "file": fileName, "size_bytes": written})
 	}
 }
 
 // --- Download ---
 
-// DownloadGameHandler returns a handler for GET /download/game/{title}/{version}.
-// URL path: /download/game/<title>/<version>
+// DownloadGameHandler returns a handler for GET /download/game/{uuid}.
 func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		// Strip prefix: /download/game/
-		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/download/game/"), "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			jsonErr(w, "usage: /download/game/{title}/{version}", http.StatusBadRequest)
+		uuid := strings.TrimPrefix(r.URL.Path, "/download/game/")
+		if uuid == "" || strings.Contains(uuid, "/") {
+			jsonErr(w, "usage: /download/game/{uuid}", http.StatusBadRequest)
 			return
 		}
-		title, version := parts[0], parts[1]
 
-		game, err := gdb.GetGame(title, version)
+		game, err := gdb.GetGameByUUID(uuid)
 		if err != nil {
 			logger.Error("get game for download", map[string]any{"err": err.Error()})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
@@ -277,8 +277,8 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 		}
 		defer f.Close()
 
-		if err := gdb.IncrementGameDownloads(title, version); err != nil {
-			logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "title": title, "version": version})
+		if err := gdb.IncrementGameDownloads(uuid); err != nil {
+			logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
 		}
 
 		stat, _ := f.Stat()
@@ -287,26 +287,25 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 		if stat != nil {
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
 		}
-		logger.Info("download game start", map[string]any{"title": title, "version": version, "remote": r.RemoteAddr})
+		logger.Info("download game start", map[string]any{"uuid": uuid, "title": game.Title, "version": game.Version, "remote": r.RemoteAddr})
 		io.Copy(w, f) //nolint:errcheck
 	}
 }
 
-// DownloadModpackHandler returns a handler for GET /download/modpack/{gameTitle}/{modpackTitle}.
+// DownloadModpackHandler returns a handler for GET /download/modpack/{uuid}.
 func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/download/modpack/"), "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			jsonErr(w, "usage: /download/modpack/{gameTitle}/{modpackTitle}", http.StatusBadRequest)
+		uuid := strings.TrimPrefix(r.URL.Path, "/download/modpack/")
+		if uuid == "" || strings.Contains(uuid, "/") {
+			jsonErr(w, "usage: /download/modpack/{uuid}", http.StatusBadRequest)
 			return
 		}
-		gameTitle, modpackTitle := parts[0], parts[1]
 
-		mp, err := mdb.GetModpack(gameTitle, modpackTitle)
+		mp, err := mdb.GetModpackByUUID(uuid)
 		if err != nil {
 			logger.Error("get modpack for download", map[string]any{"err": err.Error()})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
@@ -326,8 +325,8 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 		}
 		defer f.Close()
 
-		if err := mdb.IncrementModpackDownloads(gameTitle, modpackTitle); err != nil {
-			logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "game": gameTitle, "modpack": modpackTitle})
+		if err := mdb.IncrementModpackDownloads(uuid); err != nil {
+			logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
 		}
 
 		stat, _ := f.Stat()
@@ -336,28 +335,27 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 		if stat != nil {
 			w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
 		}
-		logger.Info("download modpack start", map[string]any{"game": gameTitle, "modpack": modpackTitle, "remote": r.RemoteAddr})
+		logger.Info("download modpack start", map[string]any{"uuid": uuid, "game": mp.GameTitle, "modpack": mp.ModpackTitle, "remote": r.RemoteAddr})
 		io.Copy(w, f) //nolint:errcheck
 	}
 }
 
 // --- Delete ---
 
-// DeleteGameHandler returns a handler for DELETE /admin/game/{title}/{version}.
+// DeleteGameHandler returns a handler for DELETE /admin/game/{uuid}.
 func DeleteGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/admin/game/"), "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			jsonErr(w, "usage: /admin/game/{title}/{version}", http.StatusBadRequest)
+		uuid := strings.TrimPrefix(r.URL.Path, "/admin/game/")
+		if uuid == "" || strings.Contains(uuid, "/") {
+			jsonErr(w, "usage: /admin/game/{uuid}", http.StatusBadRequest)
 			return
 		}
-		title, version := parts[0], parts[1]
 
-		fileName, found, err := gdb.DeleteGame(title, version)
+		fileName, found, err := gdb.DeleteGameByUUID(uuid)
 		if err != nil {
 			logger.Error("delete game db", map[string]any{"err": err.Error()})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
@@ -371,9 +369,170 @@ func DeleteGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 		diskPath := filepath.Join(gamesDir, fileName)
 		if err := os.Remove(diskPath); err != nil && !os.IsNotExist(err) {
 			logger.Error("delete game file", map[string]any{"err": err.Error(), "path": diskPath})
-			// DB record already deleted; log but return success to caller.
 		}
-		logger.Info("game deleted", map[string]any{"title": title, "version": version})
+		logger.Info("game deleted", map[string]any{"uuid": uuid, "file": fileName})
+		jsonOK(w, map[string]any{"ok": true})
+	}
+}
+
+// DeleteModpackHandler returns a handler for DELETE /admin/modpack/{uuid}.
+func DeleteModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		uuid := strings.TrimPrefix(r.URL.Path, "/admin/modpack/")
+		if uuid == "" || strings.Contains(uuid, "/") {
+			jsonErr(w, "usage: /admin/modpack/{uuid}", http.StatusBadRequest)
+			return
+		}
+
+		fileName, found, err := mdb.DeleteModpackByUUID(uuid)
+		if err != nil {
+			logger.Error("delete modpack db", map[string]any{"err": err.Error()})
+			jsonErr(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !found {
+			jsonErr(w, "modpack not found", http.StatusNotFound)
+			return
+		}
+
+		diskPath := filepath.Join(modpacksDir, fileName)
+		if err := os.Remove(diskPath); err != nil && !os.IsNotExist(err) {
+			logger.Error("delete modpack file", map[string]any{"err": err.Error(), "path": diskPath})
+		}
+		logger.Info("modpack deleted", map[string]any{"uuid": uuid, "file": fileName})
+		jsonOK(w, map[string]any{"ok": true})
+	}
+}
+
+// --- Admin dispatch (DELETE + PATCH share /admin/game/ and /admin/modpack/ prefix) ---
+
+// GameAdminHandler dispatches DELETE and PATCH for /admin/game/{uuid}.
+func GameAdminHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
+	deleteFn := DeleteGameHandler(gdb, gamesDir)
+	patchFn := PatchGameHandler(gdb)
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodDelete:
+			deleteFn(w, r)
+		case http.MethodPatch:
+			patchFn(w, r)
+		default:
+			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+// ModpackAdminHandler dispatches DELETE and PATCH for /admin/modpack/{uuid}.
+func ModpackAdminHandler(mdb *store.ModpacksDB, modpacksDir string) http.HandlerFunc {
+	deleteFn := DeleteModpackHandler(mdb, modpacksDir)
+	patchFn := PatchModpackHandler(mdb)
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodDelete:
+			deleteFn(w, r)
+		case http.MethodPatch:
+			patchFn(w, r)
+		default:
+			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+// --- Patch ---
+
+// PatchGameHandler returns a handler for PATCH /admin/game/{uuid}.
+// Accepts JSON body with optional fields: title, version, app_id, launch_exe.
+func PatchGameHandler(gdb *store.GamesDB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		uuid := strings.TrimPrefix(r.URL.Path, "/admin/game/")
+		if uuid == "" || strings.Contains(uuid, "/") {
+			jsonErr(w, "usage: /admin/game/{uuid}", http.StatusBadRequest)
+			return
+		}
+
+		var fields map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+			jsonErr(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+		if len(fields) == 0 {
+			jsonErr(w, "no fields to update", http.StatusBadRequest)
+			return
+		}
+
+		// Validate game exists.
+		game, err := gdb.GetGameByUUID(uuid)
+		if err != nil {
+			logger.Error("get game for patch", map[string]any{"err": err.Error()})
+			jsonErr(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if game == nil {
+			jsonErr(w, "game not found", http.StatusNotFound)
+			return
+		}
+
+		if err := gdb.UpdateGame(uuid, fields); err != nil {
+			logger.Error("update game", map[string]any{"err": err.Error(), "uuid": uuid})
+			jsonErr(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		logger.Info("game patched", map[string]any{"uuid": uuid, "fields": fields})
+		jsonOK(w, map[string]any{"ok": true})
+	}
+}
+
+// PatchModpackHandler returns a handler for PATCH /admin/modpack/{uuid}.
+// Accepts JSON body with optional fields: game_title, modpack_title.
+func PatchModpackHandler(mdb *store.ModpacksDB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		uuid := strings.TrimPrefix(r.URL.Path, "/admin/modpack/")
+		if uuid == "" || strings.Contains(uuid, "/") {
+			jsonErr(w, "usage: /admin/modpack/{uuid}", http.StatusBadRequest)
+			return
+		}
+
+		var fields map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+			jsonErr(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+		if len(fields) == 0 {
+			jsonErr(w, "no fields to update", http.StatusBadRequest)
+			return
+		}
+
+		mp, err := mdb.GetModpackByUUID(uuid)
+		if err != nil {
+			logger.Error("get modpack for patch", map[string]any{"err": err.Error()})
+			jsonErr(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if mp == nil {
+			jsonErr(w, "modpack not found", http.StatusNotFound)
+			return
+		}
+
+		if err := mdb.UpdateModpack(uuid, fields); err != nil {
+			logger.Error("update modpack", map[string]any{"err": err.Error(), "uuid": uuid})
+			jsonErr(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		logger.Info("modpack patched", map[string]any{"uuid": uuid, "fields": fields})
 		jsonOK(w, map[string]any{"ok": true})
 	}
 }
@@ -400,39 +559,5 @@ func DiskQuotaHandler(gamesDir string) http.HandlerFunc {
 			"total_bytes": totalBytes,
 			"used_bytes":  totalBytes - freeBytes,
 		})
-	}
-}
-
-// DeleteModpackHandler returns a handler for DELETE /admin/modpack/{gameTitle}/{modpackTitle}.
-func DeleteModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/admin/modpack/"), "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			jsonErr(w, "usage: /admin/modpack/{gameTitle}/{modpackTitle}", http.StatusBadRequest)
-			return
-		}
-		gameTitle, modpackTitle := parts[0], parts[1]
-
-		fileName, found, err := mdb.DeleteModpack(gameTitle, modpackTitle)
-		if err != nil {
-			logger.Error("delete modpack db", map[string]any{"err": err.Error()})
-			jsonErr(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		if !found {
-			jsonErr(w, "modpack not found", http.StatusNotFound)
-			return
-		}
-
-		diskPath := filepath.Join(modpacksDir, fileName)
-		if err := os.Remove(diskPath); err != nil && !os.IsNotExist(err) {
-			logger.Error("delete modpack file", map[string]any{"err": err.Error(), "path": diskPath})
-		}
-		logger.Info("modpack deleted", map[string]any{"game": gameTitle, "modpack": modpackTitle})
-		jsonOK(w, map[string]any{"ok": true})
 	}
 }
