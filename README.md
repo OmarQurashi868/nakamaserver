@@ -2,6 +2,16 @@
 
 NakamaServer is a lightweight, high-performance HTTP file-distribution server designed specifically for hosting and serving game builds and modpack archives. Written in pure Go, it requires no external runtime database thanks to its embedded SQLite architecture.
 
+> [!NOTE]
+> This project does NOT provide any games or mods and is not responsible for any misuse.
+
+## Clients
+
+This server is meant to be used with its official client applications:
+
+- **[NakamaAdmin](../nakamaadmin)** — Tauri desktop app for managing games, modpacks, and server configuration.
+- **[NakamaLauncher](../nakamalauncher)** — Tauri desktop launcher for end-users to browse, download, and play games.
+
 ---
 
 ## Features
