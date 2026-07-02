@@ -284,15 +284,27 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 			logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
 		}
 
-		stat, _ := f.Stat()
-		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, game.FileName))
-		if stat != nil {
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
+		stat, err := f.Stat()
+		if err != nil {
+			logger.Error("stat game file", map[string]any{"err": err.Error(), "path": path})
+			jsonErr(w, "internal error", http.StatusInternalServerError)
+			return
 		}
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, game.FileName))
 		logger.Info("download game start", map[string]any{"uuid": uuid, "title": game.Title, "version": game.Version, "remote": r.RemoteAddr})
-		io.Copy(w, f) //nolint:errcheck
+		http.ServeContent(&typeWriter{w, "application/zip"}, r, game.FileName, stat.ModTime(), f)
 	}
+}
+
+// typeWriter locks Content-Type so ServeContent doesn't overwrite it.
+type typeWriter struct {
+	http.ResponseWriter
+	ctype string
+}
+
+func (w *typeWriter) WriteHeader(code int) {
+	w.Header().Set("Content-Type", w.ctype)
+	w.ResponseWriter.WriteHeader(code)
 }
 
 // DownloadModpackHandler returns a handler for GET /download/modpack/{uuid}.
@@ -332,14 +344,15 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 			logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
 		}
 
-		stat, _ := f.Stat()
-		w.Header().Set("Content-Type", "application/zip")
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, mp.FileName))
-		if stat != nil {
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size()))
+		stat, err := f.Stat()
+		if err != nil {
+			logger.Error("stat modpack file", map[string]any{"err": err.Error(), "path": path})
+			jsonErr(w, "internal error", http.StatusInternalServerError)
+			return
 		}
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, mp.FileName))
 		logger.Info("download modpack start", map[string]any{"uuid": uuid, "game": mp.GameTitle, "modpack": mp.ModpackTitle, "remote": r.RemoteAddr})
-		io.Copy(w, f) //nolint:errcheck
+		http.ServeContent(&typeWriter{w, "application/zip"}, r, mp.FileName, stat.ModTime(), f)
 	}
 }
 
