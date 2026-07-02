@@ -9,8 +9,8 @@ NakamaServer is a lightweight, high-performance HTTP file-distribution server de
 
 This server is meant to be used with its official client applications:
 
-- **[NakamaAdmin](../nakamaadmin)** — Tauri desktop app for managing games, modpacks, and server configuration.
-- **[NakamaLauncher](../nakamalauncher)** — Tauri desktop launcher for end-users to browse, download, and play games.
+- **[NakamaAdmin](https://github.com/OmarQurashi868/nakamaadmin)** — Tauri desktop app for managing games, modpacks, and server configuration.
+- **[NakamaLauncher](https://github.com/OmarQurashi868/nakamalauncher)** — Tauri desktop launcher for end-users to browse, download, and play games.
 
 ---
 
