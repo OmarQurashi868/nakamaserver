@@ -304,10 +304,6 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 		}
 		defer f.Close()
 
-		if err := gdb.IncrementGameDownloads(uuid); err != nil {
-			logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
-		}
-
 		stat, err := f.Stat()
 		if err != nil {
 			logger.Error("stat game file", map[string]any{"err": err.Error(), "ip": ip, "path": path})
@@ -331,6 +327,9 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 			"version":  game.Version,
 			"duration": time.Since(start).Round(time.Second).String(),
 		})
+		if err := gdb.IncrementGameDownloads(uuid); err != nil {
+			logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
+		}
 	}
 }
 
@@ -380,10 +379,6 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 		}
 		defer f.Close()
 
-		if err := mdb.IncrementModpackDownloads(uuid); err != nil {
-			logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
-		}
-
 		stat, err := f.Stat()
 		if err != nil {
 			logger.Error("stat modpack file", map[string]any{"err": err.Error(), "ip": ip, "path": path})
@@ -407,6 +402,9 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 			"modpack":  mp.ModpackTitle,
 			"duration": time.Since(start).Round(time.Second).String(),
 		})
+		if err := mdb.IncrementModpackDownloads(uuid); err != nil {
+			logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
+		}
 	}
 }
 
