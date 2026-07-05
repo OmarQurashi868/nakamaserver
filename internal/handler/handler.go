@@ -319,29 +319,82 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 			"version": game.Version,
 			"size":    fmt.Sprintf("%.1f MB", float64(stat.Size())/1e6),
 		})
-		http.ServeContent(&typeWriter{w, "application/zip"}, r, game.FileName, stat.ModTime(), f)
+		dw := &downloadWriter{ResponseWriter: w, ctype: "application/zip"}
+		http.ServeContent(dw, r, game.FileName, stat.ModTime(), f)
+		duration := time.Since(start).Round(time.Second)
+
+		if r.Context().Err() != nil || dw.writeErr != nil {
+			var errStr string
+			if r.Context().Err() != nil {
+				errStr = r.Context().Err().Error()
+			} else {
+				errStr = dw.writeErr.Error()
+			}
+			logger.Warn("download game aborted", map[string]any{
+				"ip":       ip,
+				"uuid":     uuid,
+				"title":    game.Title,
+				"version":  game.Version,
+				"written":  fmt.Sprintf("%.1f MB", float64(dw.bytesWritten)/1e6),
+				"duration": duration.String(),
+				"err":      errStr,
+			})
+			return
+		}
+
 		logger.Info("download game done", map[string]any{
 			"ip":       ip,
 			"uuid":     uuid,
 			"title":    game.Title,
 			"version":  game.Version,
-			"duration": time.Since(start).Round(time.Second).String(),
+			"written":  fmt.Sprintf("%.1f MB", float64(dw.bytesWritten)/1e6),
+			"duration": duration.String(),
 		})
-		if err := gdb.IncrementGameDownloads(uuid); err != nil {
-			logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
+
+		isFullOrFirstRange := dw.statusCode == http.StatusOK ||
+			(dw.statusCode == http.StatusPartialContent && strings.HasPrefix(dw.Header().Get("Content-Range"), "bytes 0-"))
+
+		if isFullOrFirstRange {
+			if err := gdb.IncrementGameDownloads(uuid); err != nil {
+				logger.Error("increment game downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
+			}
 		}
 	}
 }
 
-// typeWriter locks Content-Type so ServeContent doesn't overwrite it.
-type typeWriter struct {
+// downloadWriter locks Content-Type, tracks status code, bytes written, and write errors.
+type downloadWriter struct {
 	http.ResponseWriter
-	ctype string
+	ctype        string
+	statusCode   int
+	bytesWritten int64
+	writeErr     error
 }
 
-func (w *typeWriter) WriteHeader(code int) {
-	w.Header().Set("Content-Type", w.ctype)
+func (w *downloadWriter) WriteHeader(code int) {
+	if w.ctype != "" {
+		w.Header().Set("Content-Type", w.ctype)
+	}
+	w.statusCode = code
 	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *downloadWriter) Write(b []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.bytesWritten += int64(n)
+	if err != nil && w.writeErr == nil {
+		w.writeErr = err
+	}
+	return n, err
+}
+
+func (w *downloadWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 // DownloadModpackHandler returns a handler for GET /download/modpack/{uuid}.
@@ -394,16 +447,45 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 			"modpack": mp.ModpackTitle,
 			"size":    fmt.Sprintf("%.1f MB", float64(stat.Size())/1e6),
 		})
-		http.ServeContent(&typeWriter{w, "application/zip"}, r, mp.FileName, stat.ModTime(), f)
+		dw := &downloadWriter{ResponseWriter: w, ctype: "application/zip"}
+		http.ServeContent(dw, r, mp.FileName, stat.ModTime(), f)
+		duration := time.Since(start).Round(time.Second)
+
+		if r.Context().Err() != nil || dw.writeErr != nil {
+			var errStr string
+			if r.Context().Err() != nil {
+				errStr = r.Context().Err().Error()
+			} else {
+				errStr = dw.writeErr.Error()
+			}
+			logger.Warn("download modpack aborted", map[string]any{
+				"ip":       ip,
+				"uuid":     uuid,
+				"game":     mp.GameTitle,
+				"modpack":  mp.ModpackTitle,
+				"written":  fmt.Sprintf("%.1f MB", float64(dw.bytesWritten)/1e6),
+				"duration": duration.String(),
+				"err":      errStr,
+			})
+			return
+		}
+
 		logger.Info("download modpack done", map[string]any{
 			"ip":       ip,
 			"uuid":     uuid,
 			"game":     mp.GameTitle,
 			"modpack":  mp.ModpackTitle,
-			"duration": time.Since(start).Round(time.Second).String(),
+			"written":  fmt.Sprintf("%.1f MB", float64(dw.bytesWritten)/1e6),
+			"duration": duration.String(),
 		})
-		if err := mdb.IncrementModpackDownloads(uuid); err != nil {
-			logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
+
+		isFullOrFirstRange := dw.statusCode == http.StatusOK ||
+			(dw.statusCode == http.StatusPartialContent && strings.HasPrefix(dw.Header().Get("Content-Range"), "bytes 0-"))
+
+		if isFullOrFirstRange {
+			if err := mdb.IncrementModpackDownloads(uuid); err != nil {
+				logger.Error("increment modpack downloads count", map[string]any{"err": err.Error(), "uuid": uuid})
+			}
 		}
 	}
 }

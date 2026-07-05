@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
@@ -371,3 +372,90 @@ func TestDiskQuotaHandler(t *testing.T) {
 		t.Errorf("expected free_bytes >= 0, got %d", freeBytes)
 	}
 }
+
+func TestDownloadAbortedAndRange(t *testing.T) {
+	tmpDir := t.TempDir()
+	gamesDB, err := store.OpenGamesDB(tmpDir)
+	if err != nil {
+		t.Fatalf("OpenGamesDB: %v", err)
+	}
+	defer gamesDB.Close()
+
+	gamesDir := filepath.Join(tmpDir, "games")
+	if err := os.MkdirAll(gamesDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	// Insert test game
+	uuid, _, err := gamesDB.InsertGame("Test Game", "1.0", "test.zip", "test.exe", "", "", "", 10)
+	if err != nil {
+		t.Fatalf("InsertGame: %v", err)
+	}
+
+	// Write file contents (10 bytes)
+	gamePath := filepath.Join(gamesDir, "test.zip")
+	if err := os.WriteFile(gamePath, []byte("0123456789"), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	downloadHandler := handler.DownloadGameHandler(gamesDB, gamesDir)
+
+	// 1. Test GET with range NOT starting at 0 (e.g. 2-5) -> should NOT increment downloads
+	{
+		req := httptest.NewRequest("GET", "/download/game/"+uuid, nil)
+		req.Header.Set("Range", "bytes=2-5")
+		rr := httptest.NewRecorder()
+		downloadHandler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusPartialContent {
+			t.Errorf("expected 206 Partial Content, got %d", rr.Code)
+		}
+
+		game, err := gamesDB.GetGameByUUID(uuid)
+		if err != nil {
+			t.Fatalf("GetGameByUUID: %v", err)
+		}
+		if game.Downloads != 0 {
+			t.Errorf("expected downloads count to be 0 for middle range request, got %d", game.Downloads)
+		}
+	}
+
+	// 2. Test GET with range starting at 0 (e.g. 0-5) -> should increment downloads
+	{
+		req := httptest.NewRequest("GET", "/download/game/"+uuid, nil)
+		req.Header.Set("Range", "bytes=0-5")
+		rr := httptest.NewRecorder()
+		downloadHandler.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusPartialContent {
+			t.Errorf("expected 206 Partial Content, got %d", rr.Code)
+		}
+
+		game, err := gamesDB.GetGameByUUID(uuid)
+		if err != nil {
+			t.Fatalf("GetGameByUUID: %v", err)
+		}
+		if game.Downloads != 1 {
+			t.Errorf("expected downloads count to be 1 for range starting at 0, got %d", game.Downloads)
+		}
+	}
+
+	// 3. Test GET with cancelled context -> should NOT increment downloads
+	{
+		importContext, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		req := httptest.NewRequest("GET", "/download/game/"+uuid, nil).WithContext(importContext)
+		rr := httptest.NewRecorder()
+		downloadHandler.ServeHTTP(rr, req)
+
+		game, err := gamesDB.GetGameByUUID(uuid)
+		if err != nil {
+			t.Fatalf("GetGameByUUID: %v", err)
+		}
+		if game.Downloads != 1 {
+			t.Errorf("expected downloads count to stay 1 for cancelled request, got %d", game.Downloads)
+		}
+	}
+}
+
