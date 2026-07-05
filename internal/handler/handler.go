@@ -17,11 +17,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"nakamaserver/internal/logger"
 	"nakamaserver/internal/store"
@@ -32,6 +34,24 @@ var unsafeRe = regexp.MustCompile(`[^a-zA-Z0-9.\-_]`)
 
 func sanitize(s string) string {
 	return unsafeRe.ReplaceAllString(strings.TrimSpace(s), "_")
+}
+
+// clientIP extracts the real client IP from proxy headers or RemoteAddr.
+func clientIP(r *http.Request) string {
+	if ip := strings.TrimSpace(r.Header.Get("X-Real-IP")); ip != "" {
+		return ip
+	}
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if idx := strings.Index(xff, ","); idx != -1 {
+			return strings.TrimSpace(xff[:idx])
+		}
+		return strings.TrimSpace(xff)
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
 }
 
 func jsonErr(w http.ResponseWriter, msg string, code int) {
@@ -52,22 +72,24 @@ func jsonOK(w http.ResponseWriter, v any) {
 // QueryHandler returns a handler for GET /query.
 func QueryHandler(gdb *store.GamesDB, mdb *store.ModpacksDB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
 		if r.Method != http.MethodGet {
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		games, err := gdb.ListGames()
 		if err != nil {
-			logger.Error("list games", map[string]any{"err": err.Error()})
+			logger.Error("list games", map[string]any{"err": err.Error(), "ip": ip})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		modpacks, err := mdb.ListModpacks()
 		if err != nil {
-			logger.Error("list modpacks", map[string]any{"err": err.Error()})
+			logger.Error("list modpacks", map[string]any{"err": err.Error(), "ip": ip})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		logger.Info("catalog queried", map[string]any{"ip": ip, "games": len(games), "modpacks": len(modpacks)})
 		jsonOK(w, store.FullCatalog{Games: games, Modpacks: modpacks})
 	}
 }
@@ -250,6 +272,7 @@ func UploadModpackHandler(mdb *store.ModpacksDB, modpacksDir string, maxBytes in
 // DownloadGameHandler returns a handler for GET /download/game/{uuid}.
 func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
 		if r.Method != http.MethodGet {
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -262,11 +285,12 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 
 		game, err := gdb.GetGameByUUID(uuid)
 		if err != nil {
-			logger.Error("get game for download", map[string]any{"err": err.Error()})
+			logger.Error("get game for download", map[string]any{"err": err.Error(), "ip": ip, "uuid": uuid})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		if game == nil {
+			logger.Warn("game not found", map[string]any{"ip": ip, "uuid": uuid})
 			jsonErr(w, "game not found", http.StatusNotFound)
 			return
 		}
@@ -274,7 +298,7 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 		path := filepath.Join(gamesDir, game.FileName)
 		f, err := os.Open(path)
 		if err != nil {
-			logger.Error("open game file", map[string]any{"err": err.Error(), "path": path})
+			logger.Error("open game file", map[string]any{"err": err.Error(), "ip": ip, "path": path})
 			jsonErr(w, "file not found on disk", http.StatusNotFound)
 			return
 		}
@@ -286,13 +310,27 @@ func DownloadGameHandler(gdb *store.GamesDB, gamesDir string) http.HandlerFunc {
 
 		stat, err := f.Stat()
 		if err != nil {
-			logger.Error("stat game file", map[string]any{"err": err.Error(), "path": path})
+			logger.Error("stat game file", map[string]any{"err": err.Error(), "ip": ip, "path": path})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, game.FileName))
-		logger.Info("download game start", map[string]any{"uuid": uuid, "title": game.Title, "version": game.Version, "remote": r.RemoteAddr})
+		start := time.Now()
+		logger.Info("download game start", map[string]any{
+			"ip":      ip,
+			"uuid":    uuid,
+			"title":   game.Title,
+			"version": game.Version,
+			"size":    fmt.Sprintf("%.1f MB", float64(stat.Size())/1e6),
+		})
 		http.ServeContent(&typeWriter{w, "application/zip"}, r, game.FileName, stat.ModTime(), f)
+		logger.Info("download game done", map[string]any{
+			"ip":       ip,
+			"uuid":     uuid,
+			"title":    game.Title,
+			"version":  game.Version,
+			"duration": time.Since(start).Round(time.Second).String(),
+		})
 	}
 }
 
@@ -310,6 +348,7 @@ func (w *typeWriter) WriteHeader(code int) {
 // DownloadModpackHandler returns a handler for GET /download/modpack/{uuid}.
 func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
 		if r.Method != http.MethodGet {
 			jsonErr(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -322,11 +361,12 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 
 		mp, err := mdb.GetModpackByUUID(uuid)
 		if err != nil {
-			logger.Error("get modpack for download", map[string]any{"err": err.Error()})
+			logger.Error("get modpack for download", map[string]any{"err": err.Error(), "ip": ip, "uuid": uuid})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		if mp == nil {
+			logger.Warn("modpack not found", map[string]any{"ip": ip, "uuid": uuid})
 			jsonErr(w, "modpack not found", http.StatusNotFound)
 			return
 		}
@@ -334,7 +374,7 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 		path := filepath.Join(modpacksDir, mp.FileName)
 		f, err := os.Open(path)
 		if err != nil {
-			logger.Error("open modpack file", map[string]any{"err": err.Error(), "path": path})
+			logger.Error("open modpack file", map[string]any{"err": err.Error(), "ip": ip, "path": path})
 			jsonErr(w, "file not found on disk", http.StatusNotFound)
 			return
 		}
@@ -346,13 +386,27 @@ func DownloadModpackHandler(mdb *store.ModpacksDB, modpacksDir string) http.Hand
 
 		stat, err := f.Stat()
 		if err != nil {
-			logger.Error("stat modpack file", map[string]any{"err": err.Error(), "path": path})
+			logger.Error("stat modpack file", map[string]any{"err": err.Error(), "ip": ip, "path": path})
 			jsonErr(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, mp.FileName))
-		logger.Info("download modpack start", map[string]any{"uuid": uuid, "game": mp.GameTitle, "modpack": mp.ModpackTitle, "remote": r.RemoteAddr})
+		start := time.Now()
+		logger.Info("download modpack start", map[string]any{
+			"ip":      ip,
+			"uuid":    uuid,
+			"game":    mp.GameTitle,
+			"modpack": mp.ModpackTitle,
+			"size":    fmt.Sprintf("%.1f MB", float64(stat.Size())/1e6),
+		})
 		http.ServeContent(&typeWriter{w, "application/zip"}, r, mp.FileName, stat.ModTime(), f)
+		logger.Info("download modpack done", map[string]any{
+			"ip":       ip,
+			"uuid":     uuid,
+			"game":     mp.GameTitle,
+			"modpack":  mp.ModpackTitle,
+			"duration": time.Since(start).Round(time.Second).String(),
+		})
 	}
 }
 
